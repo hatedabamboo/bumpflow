@@ -23,7 +23,7 @@ No external dependencies — only the Go standard library is used.
 
 1. Fork the repository and create a branch from `main`
 2. Make your changes
-3. Make sure `go build ./...` and `go vet ./...` pass
+3. Make sure `go build .`, `go vet .` and `go test .` pass
 4. Open a pull request with a clear description of what and why
 
 ## Code style

@@ -6,9 +6,9 @@
               |_|            
 ```
 
-# bumpwf -- Bump GitHub Actions Workflows
+# bumpwf — Bump GitHub Actions Workflows
 
-A CLI tool that scans `.github/workflows/` for outdated GitHub Actions and interactively (or silently) updates them.
+A CLI tool that scans `.github/workflows/` for outdated GitHub Actions and interactively (or silently) updates them. Also can replace current version (`actions/checkout@v4`) with the commit tag (`34e114876b0b11c390a56381ad16ebd13914f8d5`). Prevent those pesky clawed clankers from hijacking your workflows!
 
 ## Install
 
@@ -96,7 +96,3 @@ Outdated action(s) remaining: 2
 
 Which action to update? (number, or q to quit): q
 ```
-
-## License
-
-[MIT](LICENSE)
