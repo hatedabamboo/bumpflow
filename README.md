@@ -38,6 +38,7 @@ bumpwf [options]
 | Flag | Long form | Description |
 |------|-----------|-------------|
 | `-t` | `--tags` | Always use tags when updating (skips the prompt) |
+| `-n` | `--count` | Number of latest tags to fetch (default 10) |
 | `-s` | `--sha` | Always use commit hashes when updating (skips the prompt) |
 | `-A` | `--update-all` | Update all outdated actions without prompting (uses hash by default; respects `-t` or `-s`) |
 | `-r` | `--replace` | Convert pinned tags↔SHAs without upgrading versions |
