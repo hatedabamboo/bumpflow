@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bufio"
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"testing"
 )
 
@@ -113,6 +115,75 @@ func TestApplyReplace(t *testing.T) {
 		data, _ := os.ReadFile(f)
 		if string(data) != "      - uses: actions/checkout@v4\n" {
 			t.Errorf("got %q", string(data))
+		}
+	})
+}
+
+func TestPickRef(t *testing.T) {
+	a := action{
+		availableTags: []tagInfo{
+			{tag: "v3.0.0", sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+			{tag: "v2.0.0", sha: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
+		},
+	}
+
+	reader := func(input string) *bufio.Reader {
+		return bufio.NewReader(strings.NewReader(input))
+	}
+
+	t.Run("select number then t returns tag", func(t *testing.T) {
+		ref, ok := pickRef(a, config{}, reader("1\nt\n"))
+		if !ok || ref != "v3.0.0" {
+			t.Errorf("got (%q, %v), want (v3.0.0, true)", ref, ok)
+		}
+	})
+
+	t.Run("select number then s returns sha", func(t *testing.T) {
+		ref, ok := pickRef(a, config{}, reader("2\ns\n"))
+		if !ok || ref != "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" {
+			t.Errorf("got (%q, %v), want (bbb..., true)", ref, ok)
+		}
+	})
+
+	t.Run("empty input skips", func(t *testing.T) {
+		ref, ok := pickRef(a, config{}, reader("\n"))
+		if ok || ref != "" {
+			t.Errorf("got (%q, %v), want (\"\", false)", ref, ok)
+		}
+	})
+
+	t.Run("non-integer input is invalid", func(t *testing.T) {
+		ref, ok := pickRef(a, config{}, reader("abc\n"))
+		if ok || ref != "" {
+			t.Errorf("got (%q, %v), want (\"\", false)", ref, ok)
+		}
+	})
+
+	t.Run("out of range number is invalid", func(t *testing.T) {
+		ref, ok := pickRef(a, config{}, reader("5\n"))
+		if ok || ref != "" {
+			t.Errorf("got (%q, %v), want (\"\", false)", ref, ok)
+		}
+	})
+
+	t.Run("unrecognized t/s choice skips", func(t *testing.T) {
+		ref, ok := pickRef(a, config{}, reader("1\nx\n"))
+		if ok || ref != "" {
+			t.Errorf("got (%q, %v), want (\"\", false)", ref, ok)
+		}
+	})
+
+	t.Run("useTag skips t/s prompt and returns tag", func(t *testing.T) {
+		ref, ok := pickRef(a, config{useTag: true}, reader("1\n"))
+		if !ok || ref != "v3.0.0" {
+			t.Errorf("got (%q, %v), want (v3.0.0, true)", ref, ok)
+		}
+	})
+
+	t.Run("useHash skips t/s prompt and returns sha", func(t *testing.T) {
+		ref, ok := pickRef(a, config{useHash: true}, reader("2\n"))
+		if !ok || ref != "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" {
+			t.Errorf("got (%q, %v), want (bbb..., true)", ref, ok)
 		}
 	})
 }

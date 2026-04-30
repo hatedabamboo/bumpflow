@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"sort"
 	"sync"
 )
 
@@ -21,8 +22,9 @@ type tagInfo struct {
 }
 
 type repoInfo struct {
-	latest tagInfo
-	tags   map[string]string // tag name -> sha
+	latest  tagInfo
+	topTags []tagInfo
+	tags    map[string]string // tag name -> sha
 }
 
 func githubGet(url string) ([]byte, error) {
@@ -75,7 +77,7 @@ func getCommitDate(ownerRepo, sha string) string {
 	return "unknown"
 }
 
-func getRepoTagInfo(ownerRepo string) (*repoInfo, error) {
+func getRepoTagInfo(ownerRepo string, count int) (*repoInfo, error) {
 	data, err := githubGet(fmt.Sprintf("%s/repos/%s/tags?per_page=100", apiBaseURL, ownerRepo))
 	if err != nil {
 		return nil, err
@@ -92,23 +94,35 @@ func getRepoTagInfo(ownerRepo string) (*repoInfo, error) {
 	slog.Debug("fetched tags", "repo", ownerRepo, "count", len(tags))
 
 	allTags := make(map[string]string, len(tags))
-	var bestTag, bestSHA string
+	var semverTags []tagInfo
+
 	for _, t := range tags {
 		allTags[t.Name] = t.Commit.SHA
-		if !semverRe.MatchString(t.Name) {
-			continue
-		}
-		if bestTag == "" || versionGreater(t.Name, bestTag) {
-			bestTag = t.Name
-			bestSHA = t.Commit.SHA
+		if semverRe.MatchString(t.Name) {
+			semverTags = append(semverTags, tagInfo{tag: t.Name, sha: t.Commit.SHA})
 		}
 	}
-	if bestTag == "" {
+
+	if len(semverTags) == 0 {
 		return nil, nil
 	}
+
+	sort.Slice(semverTags, func(i, j int) bool {
+		return versionGreater(semverTags[i].tag, semverTags[j].tag)
+	})
+
+	if count > len(semverTags) {
+		count = len(semverTags)
+	}
+	semverTags = semverTags[:count]
+
+	topTags := semverTags
+	topTags[0].date = getCommitDate(ownerRepo, topTags[0].sha)
+
 	return &repoInfo{
-		latest: tagInfo{tag: bestTag, sha: bestSHA, date: getCommitDate(ownerRepo, bestSHA)},
-		tags:   allTags,
+		latest:  topTags[0],
+		topTags: topTags,
+		tags:    allTags,
 	}, nil
 }
 
@@ -125,7 +139,7 @@ func bestTagForSHA(info *repoInfo, sha string) string {
 	return best
 }
 
-func fetchRepos(ownerRepos []string) (map[string]*repoInfo, map[string]error) {
+func fetchRepos(ownerRepos []string, count int) (map[string]*repoInfo, map[string]error) {
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 	checked := make(map[string]*repoInfo, len(ownerRepos))
@@ -136,7 +150,7 @@ func fetchRepos(ownerRepos []string) (map[string]*repoInfo, map[string]error) {
 		go func(repo string) {
 			defer wg.Done()
 			slog.Debug("fetching repo tags", "repo", repo)
-			info, err := getRepoTagInfo(repo)
+			info, err := getRepoTagInfo(repo, count)
 			mu.Lock()
 			checked[repo] = info
 			if err != nil {

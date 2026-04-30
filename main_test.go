@@ -15,47 +15,55 @@ func TestParseArgs(t *testing.T) {
 	}{
 		{
 			[]string{"bumpwf"},
-			config{},
+			config{tagCount: defaultTagCount},
 		},
 		{
 			[]string{"bumpwf", "-t"},
-			config{useTag: true},
+			config{useTag: true, tagCount: defaultTagCount},
 		},
 		{
 			[]string{"bumpwf", "--tags"},
-			config{useTag: true},
+			config{useTag: true, tagCount: defaultTagCount},
 		},
 		{
 			[]string{"bumpwf", "-s"},
-			config{useHash: true},
+			config{useHash: true, tagCount: defaultTagCount},
 		},
 		{
 			[]string{"bumpwf", "--sha"},
-			config{useHash: true},
+			config{useHash: true, tagCount: defaultTagCount},
 		},
 		{
 			[]string{"bumpwf", "-A"},
-			config{updateAll: true},
+			config{updateAll: true, tagCount: defaultTagCount},
 		},
 		{
 			[]string{"bumpwf", "--update-all"},
-			config{updateAll: true},
+			config{updateAll: true, tagCount: defaultTagCount},
 		},
 		{
 			[]string{"bumpwf", "-r"},
-			config{useReplace: true},
+			config{useReplace: true, tagCount: defaultTagCount},
 		},
 		{
 			[]string{"bumpwf", "--replace"},
-			config{useReplace: true},
+			config{useReplace: true, tagCount: defaultTagCount},
 		},
 		{
 			[]string{"bumpwf", "-v"},
-			config{verbose: true},
+			config{verbose: true, tagCount: defaultTagCount},
 		},
 		{
 			[]string{"bumpwf", "-t", "-A"},
-			config{useTag: true, updateAll: true},
+			config{useTag: true, updateAll: true, tagCount: defaultTagCount},
+		},
+		{
+			[]string{"bumpwf", "-n", "5"},
+			config{tagCount: 5},
+		},
+		{
+			[]string{"bumpwf", "--count", "3"},
+			config{tagCount: 3},
 		},
 	}
 

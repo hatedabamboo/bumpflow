@@ -133,7 +133,7 @@ func TestGetRepoTagInfo(t *testing.T) {
 		defer srv.Close()
 		apiBaseURL = srv.URL
 
-		info, err := getRepoTagInfo("owner/repo")
+		info, err := getRepoTagInfo("owner/repo", 10)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -151,6 +151,59 @@ func TestGetRepoTagInfo(t *testing.T) {
 		}
 	})
 
+	t.Run("topTags sorted descending and limited by count", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if strings.Contains(r.URL.Path, "/commits/") {
+				w.Write([]byte(`{"commit":{"committer":{"date":"2024-01-15T00:00:00Z"}}}`))
+				return
+			}
+			w.Write([]byte(`[
+				{"name":"v1.0.0","commit":{"sha":"aaa"}},
+				{"name":"v3.0.0","commit":{"sha":"ccc"}},
+				{"name":"v2.0.0","commit":{"sha":"bbb"}}
+			]`))
+		}))
+		defer srv.Close()
+		apiBaseURL = srv.URL
+
+		info, err := getRepoTagInfo("owner/repo", 2)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(info.topTags) != 2 {
+			t.Fatalf("topTags count = %d, want 2", len(info.topTags))
+		}
+		if info.topTags[0].tag != "v3.0.0" {
+			t.Errorf("topTags[0] = %q, want v3.0.0", info.topTags[0].tag)
+		}
+		if info.topTags[1].tag != "v2.0.0" {
+			t.Errorf("topTags[1] = %q, want v2.0.0", info.topTags[1].tag)
+		}
+	})
+
+	t.Run("count larger than available tags is clamped", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if strings.Contains(r.URL.Path, "/commits/") {
+				w.Write([]byte(`{"commit":{"committer":{"date":"2024-01-15T00:00:00Z"}}}`))
+				return
+			}
+			w.Write([]byte(`[
+				{"name":"v1.0.0","commit":{"sha":"aaa"}},
+				{"name":"v2.0.0","commit":{"sha":"bbb"}}
+			]`))
+		}))
+		defer srv.Close()
+		apiBaseURL = srv.URL
+
+		info, err := getRepoTagInfo("owner/repo", 100)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(info.topTags) != 2 {
+			t.Errorf("topTags count = %d, want 2", len(info.topTags))
+		}
+	})
+
 	t.Run("no semver tags returns nil info", func(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Write([]byte(`[{"name":"latest","commit":{"sha":"aaa"}}]`))
@@ -158,7 +211,7 @@ func TestGetRepoTagInfo(t *testing.T) {
 		defer srv.Close()
 		apiBaseURL = srv.URL
 
-		info, err := getRepoTagInfo("owner/repo")
+		info, err := getRepoTagInfo("owner/repo", 10)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -174,7 +227,7 @@ func TestGetRepoTagInfo(t *testing.T) {
 		defer srv.Close()
 		apiBaseURL = srv.URL
 
-		_, err := getRepoTagInfo("owner/repo")
+		_, err := getRepoTagInfo("owner/repo", 10)
 		if err == nil {
 			t.Fatal("expected error")
 		}
@@ -220,7 +273,7 @@ func TestFetchRepos(t *testing.T) {
 	defer srv.Close()
 	apiBaseURL = srv.URL
 
-	checked, errs := fetchRepos([]string{"owner/repo-a", "owner/repo-b"})
+	checked, errs := fetchRepos([]string{"owner/repo-a", "owner/repo-b"}, 10)
 
 	if len(errs) != 0 {
 		t.Errorf("unexpected errors: %v", errs)

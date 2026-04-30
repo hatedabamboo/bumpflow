@@ -34,6 +34,7 @@ type action struct {
 	latestTag       string
 	latestSHA       string
 	latestDate      string
+	availableTags   []tagInfo
 	files           []string
 }
 
@@ -136,11 +137,11 @@ func printFetchErrors(fetchErrs map[string]error) {
 	}
 }
 
-func scan() ([]action, bool) {
+func scan(cfg config) ([]action, bool) {
 	entries, ownerRepos := collectEntries()
 
 	fmt.Printf("Fetching %d repo(s)...\n", len(ownerRepos))
-	checked, fetchErrs := fetchRepos(ownerRepos)
+	checked, fetchErrs := fetchRepos(ownerRepos, cfg.tagCount)
 
 	installedVersions := map[string][]string{}
 	seenInstalled := map[string]map[string]struct{}{}
@@ -215,6 +216,7 @@ func scan() ([]action, bool) {
 				currentVersions: map[string]struct{}{},
 				latestTag:       info.latest.tag,
 				latestSHA:       info.latest.sha,
+				availableTags:   info.topTags,
 				latestDate:      info.latest.date,
 			}
 		}
@@ -241,22 +243,40 @@ func scan() ([]action, bool) {
 }
 
 func pickRef(a action, cfg config, r *bufio.Reader) (string, bool) {
+	for i, t := range a.availableTags {
+		fmt.Printf("  [%d]\t\t%s\t%s\n", i+1, cGreen(t.tag), cDim("("+shortSHA(t.sha)+")"))
+	}
+	fmt.Println("  [Enter]\tSkip")
+	fmt.Print("  Select version (number): ")
+	line, _ := r.ReadString('\n')
+	line = strings.TrimSpace(line)
+
+	if line == "" {
+		return "", false
+	}
+
+	n, err := strconv.Atoi(line)
+	if err != nil || n < 1 || n > len(a.availableTags) {
+		fmt.Println(cRed("  Invalid choice."))
+		return "", false
+	}
+
+	selected := a.availableTags[n-1]
 	if cfg.useTag {
-		return a.latestTag, true
+		return selected.tag, true
 	}
 	if cfg.useHash {
-		return a.latestSHA, true
+		return selected.sha, true
 	}
-	fmt.Printf("  [t] Tag:  %s  %s\n", cGreen(a.latestTag), cDim("(committed on "+a.latestDate+")"))
-	fmt.Printf("  [s] SHA:  %s  %s\n", cCyan(a.latestSHA), cDim("(committed on "+a.latestDate+")"))
-	fmt.Println("  [Enter] Skip")
-	fmt.Print("  Use tag or hash? (t/s/Enter): ")
-	line, _ := r.ReadString('\n')
-	switch strings.TrimSpace(line) {
+	fmt.Printf("  [t] Tag:  %s\n", cGreen(selected.tag))
+	fmt.Printf("  [s] SHA:  %s\n", cCyan(selected.sha))
+	fmt.Print("  Use tag or hash? (t/s): ")
+	choice, _ := r.ReadString('\n')
+	switch strings.TrimSpace(choice) {
 	case "t":
-		return a.latestTag, true
+		return selected.tag, true
 	case "s":
-		return a.latestSHA, true
+		return selected.sha, true
 	default:
 		return "", false
 	}
@@ -270,7 +290,7 @@ func replace() {
 	}
 
 	fmt.Printf("Fetching %d repo(s)...\n", len(ownerRepos))
-	checked, fetchErrs := fetchRepos(ownerRepos)
+	checked, fetchErrs := fetchRepos(ownerRepos, 1)
 	printFetchErrors(fetchErrs)
 
 	type key struct{ ref, tag string }

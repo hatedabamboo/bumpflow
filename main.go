@@ -12,10 +12,13 @@ import (
 	"strings"
 )
 
+const defaultTagCount = 10
+
 var version = "dev"
 
 type config struct {
 	useTag     bool
+	tagCount   int
 	useHash    bool
 	updateAll  bool
 	useReplace bool
@@ -35,6 +38,7 @@ func printUsage() {
 	fmt.Print(`
 Options:
   -t, --tags        Always use tags when updating (skip prompt)
+  -n, --count       Number of latest tags to fetch (default 10)
   -s, --sha         Always use commit hashes when updating (skip prompt)
   -A, --update-all  Update all outdated actions without prompting
                     (defaults to hash; respects -t or -s if provided)
@@ -52,10 +56,24 @@ Environment:
 
 func parseArgs() config {
 	var cfg config
-	for _, arg := range os.Args[1:] {
+	args := os.Args[1:]
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
 		switch arg {
 		case "-t", "--tags":
 			cfg.useTag = true
+		case "-n", "--count":
+			if i+1 >= len(args) {
+				fmt.Fprintln(os.Stderr, "Error: -n requires a value")
+				os.Exit(1)
+			}
+			i++
+			n, err := strconv.Atoi(args[i])
+			if err != nil || n < 1 {
+				fmt.Fprintln(os.Stderr, "Error: -n value must be a positive integer")
+				os.Exit(1)
+			}
+			cfg.tagCount = n
 		case "-s", "--sha":
 			cfg.useHash = true
 		case "-A", "--update-all":
@@ -75,6 +93,9 @@ func parseArgs() config {
 			printUsage()
 			os.Exit(1)
 		}
+	}
+	if cfg.tagCount == 0 {
+		cfg.tagCount = defaultTagCount
 	}
 	if cfg.useTag && cfg.useHash {
 		fmt.Fprintln(os.Stderr, "Error: -t and -s are mutually exclusive.")
@@ -108,7 +129,7 @@ func main() {
 		return
 	}
 
-	remaining, hadErrors := scan()
+	remaining, hadErrors := scan(cfg)
 
 	if len(remaining) == 0 {
 		if !hadErrors {
