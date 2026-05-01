@@ -14,55 +14,55 @@ func TestParseArgs(t *testing.T) {
 		want config
 	}{
 		{
-			[]string{"bumpwf"},
+			[]string{"bumpflow"},
 			config{tagCount: defaultTagCount},
 		},
 		{
-			[]string{"bumpwf", "-t"},
+			[]string{"bumpflow", "-t"},
 			config{useTag: true, tagCount: defaultTagCount},
 		},
 		{
-			[]string{"bumpwf", "--tags"},
+			[]string{"bumpflow", "--tags"},
 			config{useTag: true, tagCount: defaultTagCount},
 		},
 		{
-			[]string{"bumpwf", "-s"},
+			[]string{"bumpflow", "-s"},
 			config{useHash: true, tagCount: defaultTagCount},
 		},
 		{
-			[]string{"bumpwf", "--sha"},
+			[]string{"bumpflow", "--sha"},
 			config{useHash: true, tagCount: defaultTagCount},
 		},
 		{
-			[]string{"bumpwf", "-A"},
+			[]string{"bumpflow", "-A"},
 			config{updateAll: true, tagCount: defaultTagCount},
 		},
 		{
-			[]string{"bumpwf", "--update-all"},
+			[]string{"bumpflow", "--update-all"},
 			config{updateAll: true, tagCount: defaultTagCount},
 		},
 		{
-			[]string{"bumpwf", "-r"},
+			[]string{"bumpflow", "-r"},
 			config{useReplace: true, tagCount: defaultTagCount},
 		},
 		{
-			[]string{"bumpwf", "--replace"},
+			[]string{"bumpflow", "--replace"},
 			config{useReplace: true, tagCount: defaultTagCount},
 		},
 		{
-			[]string{"bumpwf", "-v"},
+			[]string{"bumpflow", "-v"},
 			config{verbose: true, tagCount: defaultTagCount},
 		},
 		{
-			[]string{"bumpwf", "-t", "-A"},
+			[]string{"bumpflow", "-t", "-A"},
 			config{useTag: true, updateAll: true, tagCount: defaultTagCount},
 		},
 		{
-			[]string{"bumpwf", "-n", "5"},
+			[]string{"bumpflow", "-n", "5"},
 			config{tagCount: 5},
 		},
 		{
-			[]string{"bumpwf", "--count", "3"},
+			[]string{"bumpflow", "--count", "3"},
 			config{tagCount: 3},
 		},
 	}

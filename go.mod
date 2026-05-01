@@ -1,3 +1,3 @@
-module github.com/hatedabamboo/bumpwf
+module github.com/hatedabamboo/bumpflow
 
 go 1.23

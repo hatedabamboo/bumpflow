@@ -12,8 +12,8 @@ Open an issue on GitHub. Include:
 ## Development setup
 
 ```sh
-git clone https://github.com/hatedabamboo/bumpwf
-cd bumpwf
+git clone https://github.com/hatedabamboo/bumpflow
+cd bumpflow
 make build
 ```
 

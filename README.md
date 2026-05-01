@@ -6,21 +6,21 @@
               |_|            
 ```
 
-# [bumpwf](https://notes.hatedabamboo.me/project-bumpwf/) — Bump GitHub Actions Workflows
+# [bumpflow](https://notes.hatedabamboo.me/project-bumpflow/) — Bump GitHub Actions Workflows
 
 A CLI tool that scans `.github/workflows/` for outdated GitHub Actions and interactively (or silently) updates them. Also can replace current version (`actions/checkout@v4`) with the commit tag (`34e114876b0b11c390a56381ad16ebd13914f8d5`). Prevent those pesky clawed clankers from hijacking your workflows!
 
 ## Install
 
 ```sh
-go install github.com/hatedabamboo/bumpwf@latest
+go install github.com/hatedabamboo/bumpflow@latest
 ```
 
 Or build from source:
 
 ```sh
-git clone https://github.com/hatedabamboo/bumpwf
-cd bumpwf
+git clone https://github.com/hatedabamboo/bumpflow
+cd bumpflow
 make
 make install
 ```
@@ -30,7 +30,7 @@ make install
 Run from the root of a git repository:
 
 ```sh
-bumpwf [options]
+bumpflow [options]
 ```
 
 ### Options
@@ -54,14 +54,14 @@ Set `GH_TOKEN` to a GitHub personal access token for authenticated API calls:
 
 ```sh
 export GH_TOKEN="ghp_..."
-bumpwf
+bumpflow
 ```
 
 Without a token, GitHub limits anonymous requests to 60/hour. If you hit the limit, either set `GH_TOKEN` or use a VPN.
 
 ## Example workflow usage
 
-To utilize `bumpwf` capabilities in automatic fashion, you must create Fine-grained [Personal Access Token](https://github.com/settings/personal-access-tokens/new) with the following settings:
+To utilize `bumpflow` capabilities in automatic fashion, you must create Fine-grained [Personal Access Token](https://github.com/settings/personal-access-tokens/new) with the following settings:
 
 - **Name**: `WORKFLOW_TOKEN` (can be any)
 - **Expiration**: any (recommended to set to 90 days)
@@ -102,12 +102,12 @@ jobs:
         with:
           go-version: stable
 
-      - name: Install bumpwf
-        run: go install github.com/hatedabamboo/bumpwf@latest
+      - name: Install bumpflow
+        run: go install github.com/hatedabamboo/bumpflow@latest
 
       - name: Upgrade workflows
         run: |
-          "$(go env GOPATH)/bin/bumpwf" -A # upgrade all automatically
+          "$(go env GOPATH)/bin/bumpflow" -A # upgrade all automatically
 
       - name: Create labels
         env:
@@ -126,14 +126,14 @@ jobs:
           delete-branch: true
           title: "chore: upgrade workflow action versions"
           body: |
-            Automated upgrade of GitHub Actions versions by [bumpwf](https://github.com/hatedabamboo/bumpwf).
+            Automated upgrade of GitHub Actions versions by [bumpflow](https://github.com/hatedabamboo/bumpflow).
           labels: chore,dependencies,automation
 ```
 
 ## Example interactive usage
 
 ```bash
-$ bumpwf
+$ bumpflow
 Fetching 4 repo(s)...
 
   Action                                        Installed version              Latest version

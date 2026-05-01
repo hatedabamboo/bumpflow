@@ -6,13 +6,13 @@ VERSION := $(shell cat VERSION)
 all: build
 
 build:
-	go build -ldflags="-X main.version=$(VERSION)" -o bumpwf .
+	go build -ldflags="-X main.version=$(VERSION)" -o bumpflow .
 
 install: build
-	sudo install -m 755 bumpwf $(PREFIX)/bin/bumpwf
+	sudo install -m 755 bumpflow $(PREFIX)/bin/bumpflow
 
 clean:
-	rm -f bumpwf
+	rm -f bumpflow
 
 release:
 	$(MAKE) build

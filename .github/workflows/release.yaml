@@ -48,11 +48,11 @@ jobs:
         run: |
           EXT=""
           [ "$GOOS" = "windows" ] && EXT=".exe"
-          go build -trimpath -ldflags="-s -w -X main.version=$(cat VERSION | tr -d '\n')" -o bumpwf-${{ matrix.goos }}-${{ matrix.goarch }}${EXT} .
+          go build -trimpath -ldflags="-s -w -X main.version=$(cat VERSION | tr -d '\n')" -o bumpflow-${{ matrix.goos }}-${{ matrix.goarch }}${EXT} .
 
       - name: Upload to release
         uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda
         with:
-          files: bumpwf-${{ matrix.goos }}-${{ matrix.goarch }}*
+          files: bumpflow-${{ matrix.goos }}-${{ matrix.goarch }}*
           body: |
             **Full Changelog**: [${{ steps.prev_tag.outputs.tag }}...${{ github.ref_name }}](https://github.com/${{ github.repository }}/compare/${{ steps.prev_tag.outputs.tag }}...${{ github.ref_name }})

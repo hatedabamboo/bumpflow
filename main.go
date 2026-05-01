@@ -86,7 +86,7 @@ func parseArgs() config {
 			printUsage()
 			os.Exit(0)
 		case "-V", "--version":
-			fmt.Println("bumpwf", version)
+			fmt.Println("bumpflow", version)
 			os.Exit(0)
 		default:
 			fmt.Fprintf(os.Stderr, "Unknown flag: %s\n", arg)
