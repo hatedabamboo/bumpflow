@@ -7,7 +7,6 @@
 ██████╔╝╚██████╔╝██║ ╚═╝ ██║██║     ██║     ███████╗╚██████╔╝╚███╔███╔╝
 ╚═════╝  ╚═════╝ ╚═╝     ╚═╝╚═╝     ╚═╝     ╚══════╝ ╚═════╝  ╚══╝╚══╝ 
 
-
 ```
 
 ![test](https://github.com/hatedabamboo/bumpflow/actions/workflows/test.yaml/badge.svg)
