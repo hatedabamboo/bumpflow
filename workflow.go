@@ -54,7 +54,7 @@ func shortSHA(sha string) string {
 
 // rewriteFile applies pattern to wfFile, replacing the capture group with replacement.
 // Padding must be applied to raw strings before colorizing to keep column widths correct.
-func rewriteFile(wfFile string, pattern *regexp.Regexp, replacement string) {
+func rewriteFile(wfFile string, pattern *regexp.Regexp, replacement string, dryRun bool) {
 	slog.Debug("reading workflow file", "file", wfFile)
 	data, err := os.ReadFile(wfFile)
 	if err != nil {
@@ -65,6 +65,10 @@ func rewriteFile(wfFile string, pattern *regexp.Regexp, replacement string) {
 	if string(updated) == string(data) {
 		return
 	}
+	if dryRun {
+		fmt.Printf("  %s %s\n", cYellow("Would update"), wfFile)
+		return
+	}
 	slog.Debug("writing workflow file", "file", wfFile)
 	if err := os.WriteFile(wfFile, updated, 0644); err != nil {
 		fmt.Printf("  %s %s: %v\n", cRed("Error writing"), wfFile, err)
@@ -73,25 +77,25 @@ func rewriteFile(wfFile string, pattern *regexp.Regexp, replacement string) {
 	fmt.Printf("  %s %s\n", cGreen("Updated"), wfFile)
 }
 
-func applyUpdate(a action, ref, comment string) {
+func applyUpdate(a action, ref, comment string, dryRun bool) {
 	pattern := regexp.MustCompile(`(uses:\s+` + regexp.QuoteMeta(a.actionRef) + `@)[^\s#]+(\s*#[^\n]*)?`)
 	replacement := ref
 	if comment != "" {
 		replacement = ref + " # " + comment
 	}
 	for _, wfFile := range a.files {
-		rewriteFile(wfFile, pattern, replacement)
+		rewriteFile(wfFile, pattern, replacement, dryRun)
 	}
 }
 
-func applyReplace(actionRef, from, to string, files []string) {
+func applyReplace(actionRef, from, to string, files []string, dryRun bool) {
 	pattern := regexp.MustCompile(`(uses:\s+` + regexp.QuoteMeta(actionRef) + `@)` + regexp.QuoteMeta(from) + `(\s*#[^\n]*)?`)
 	replacement := to
 	if hashRe.MatchString(to) {
 		replacement = to + " # " + from
 	}
 	for _, wfFile := range files {
-		rewriteFile(wfFile, pattern, replacement)
+		rewriteFile(wfFile, pattern, replacement, dryRun)
 	}
 }
 
@@ -290,7 +294,7 @@ func pickRef(a action, cfg config, r *bufio.Reader) (string, string, bool) {
 	}
 }
 
-func replace() {
+func replace(dryRun bool) {
 	entries, ownerRepos := collectEntries()
 	if len(ownerRepos) == 0 {
 		fmt.Println("No GitHub Actions found in", workflowsDir)
@@ -398,7 +402,7 @@ func replace() {
 			toStr = cCyan(item.target)
 		}
 		fmt.Printf("\nConverting %s: %s %s %s\n\n", bold(item.actionRef), fromStr, cDim("→"), toStr)
-		applyReplace(item.actionRef, item.current, item.target, item.files)
+		applyReplace(item.actionRef, item.current, item.target, item.files, dryRun)
 		fmt.Println(cGreen("\n  Done."))
 	}
 }

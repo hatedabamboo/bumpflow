@@ -8,7 +8,9 @@ import (
 	"net/http"
 	"os"
 	"sort"
+	"strconv"
 	"sync"
+	"time"
 )
 
 var ghToken = os.Getenv("GH_TOKEN")
@@ -45,13 +47,27 @@ func githubGet(url string) ([]byte, error) {
 	}
 	defer resp.Body.Close()
 	slog.Debug("HTTP response", "url", url, "status", resp.StatusCode)
-	if resp.StatusCode == http.StatusForbidden && ghToken == "" {
-		return nil, fmt.Errorf("rate limited: anonymous GitHub API requests are limited to 60/hour — set GH_TOKEN or use a VPN")
-	}
-	if resp.StatusCode != http.StatusOK {
+	switch resp.StatusCode {
+	case http.StatusOK:
+		return io.ReadAll(resp.Body)
+	case http.StatusUnauthorized:
+		return nil, fmt.Errorf("GitHub authentication failed: GH_TOKEN is invalid or has been revoked — generate a new token at https://github.com/settings/tokens")
+	case http.StatusForbidden:
+		if resp.Header.Get("X-RateLimit-Remaining") == "0" {
+			if ts, err2 := strconv.ParseInt(resp.Header.Get("X-RateLimit-Reset"), 10, 64); err2 == nil {
+				return nil, fmt.Errorf("GitHub API rate limit exceeded — resets at %s", time.Unix(ts, 0).Local().Format("15:04 MST"))
+			}
+			return nil, fmt.Errorf("GitHub API rate limit exceeded")
+		}
+		if ghToken == "" {
+			return nil, fmt.Errorf("rate limited: anonymous GitHub API requests are limited to 60/hour — set GH_TOKEN or use a VPN")
+		}
+		return nil, fmt.Errorf("GitHub API access forbidden: verify GH_TOKEN has 'public_repo' or 'repo' scope")
+	case http.StatusNotFound:
+		return nil, fmt.Errorf("repository not found — check if it's private or the action name is correct (HTTP 404)")
+	default:
 		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
-	return io.ReadAll(resp.Body)
 }
 
 func getCommitDate(ownerRepo, sha string) string {

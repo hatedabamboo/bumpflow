@@ -23,6 +23,7 @@ type config struct {
 	updateAll  bool
 	useReplace bool
 	verbose    bool
+	dryRun     bool
 }
 
 func initLogger(v bool) {
@@ -43,6 +44,7 @@ Options:
   -A, --update-all  Update all outdated actions without prompting
                     (defaults to hash; respects -t or -s if provided)
   -r, --replace     Convert pinned tags↔SHAs without upgrading versions
+  -d, --dry-run     Preview changes without modifying any files
   -v, --verbose     Enable verbose logging
   -h, --help        Show this help
   -V, --version     Show version
@@ -51,11 +53,22 @@ Environment:
   GH_TOKEN  GitHub personal access token for authenticated API calls.
             Anonymous requests are limited to 60/hour.
   NO_COLOR  Disable colored output when set (any value).
+
+Config file (.bumpflow.yaml):
+  Place a .bumpflow.yaml at the repo root to set persistent defaults.
+  CLI flags always override config file settings.
+
+  always_sha: true    # same as -s
+  always_tag: false   # same as -t
+  count: 5            # same as -n
+  update_all: false   # same as -A
+  verbose: false      # same as -v
+  dry_run: false      # same as -d
 `)
 }
 
-func parseArgs() config {
-	var cfg config
+func parseArgs(base config) config {
+	cfg := base
 	args := os.Args[1:]
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
@@ -80,6 +93,8 @@ func parseArgs() config {
 			cfg.updateAll = true
 		case "-r", "--replace":
 			cfg.useReplace = true
+		case "-d", "--dry-run":
+			cfg.dryRun = true
 		case "-v", "--verbose":
 			cfg.verbose = true
 		case "-h", "--help":
@@ -116,7 +131,7 @@ func isGitRepo() bool {
 }
 
 func main() {
-	cfg := parseArgs()
+	cfg := parseArgs(loadConfigFile())
 	initLogger(cfg.verbose)
 
 	if !isGitRepo() {
@@ -124,8 +139,12 @@ func main() {
 		os.Exit(1)
 	}
 
+	if cfg.dryRun {
+		fmt.Println(cYellow("Dry run mode — no files will be modified.\n"))
+	}
+
 	if cfg.useReplace {
-		replace()
+		replace(cfg.dryRun)
 		return
 	}
 
@@ -148,9 +167,13 @@ func main() {
 				comment = ""
 			}
 			fmt.Printf("\nUpdating %s %s %s\n\n", bold(a.actionRef), cDim("→"), cGreen(ref))
-			applyUpdate(a, ref, comment)
+			applyUpdate(a, ref, comment, cfg.dryRun)
 		}
-		fmt.Println(cGreen("\nAll actions updated!"))
+		if cfg.dryRun {
+			fmt.Println(cYellow("\nDry run complete — no files were modified."))
+		} else {
+			fmt.Println(cGreen("\nAll actions updated!"))
+		}
 		return
 	}
 
@@ -202,12 +225,16 @@ func main() {
 			continue
 		}
 		fmt.Println()
-		applyUpdate(a, ref, comment)
+		applyUpdate(a, ref, comment, cfg.dryRun)
 		fmt.Println()
 		fmt.Println(cGreen("  Done."))
 	}
 
 	if len(remaining) == 0 {
-		fmt.Println(cGreen("\nAll actions updated!"))
+		if cfg.dryRun {
+			fmt.Println(cYellow("\nDry run complete — no files were modified."))
+		} else {
+			fmt.Println(cGreen("\nAll actions updated!"))
+		}
 	}
 }

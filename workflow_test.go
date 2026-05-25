@@ -33,7 +33,7 @@ func TestRewriteFile(t *testing.T) {
 		os.WriteFile(f, []byte("      uses: actions/checkout@v3\n"), 0644)
 
 		pattern := regexp.MustCompile(`(uses:\s+actions/checkout@)[^\s#]+`)
-		rewriteFile(f, pattern, "v4")
+		rewriteFile(f, pattern, "v4", false)
 
 		data, _ := os.ReadFile(f)
 		if string(data) != "      uses: actions/checkout@v4\n" {
@@ -47,7 +47,7 @@ func TestRewriteFile(t *testing.T) {
 		os.WriteFile(f, []byte(original), 0644)
 
 		pattern := regexp.MustCompile(`(uses:\s+actions/checkout@)[^\s#]+`)
-		rewriteFile(f, pattern, "v5")
+		rewriteFile(f, pattern, "v5", false)
 
 		data, _ := os.ReadFile(f)
 		if string(data) != original {
@@ -60,7 +60,7 @@ func TestRewriteFile(t *testing.T) {
 		os.WriteFile(f, []byte("      uses: actions/checkout@v3 # pinned\n"), 0644)
 
 		pattern := regexp.MustCompile(`(uses:\s+actions/checkout@)[^\s#]+`)
-		rewriteFile(f, pattern, "v4")
+		rewriteFile(f, pattern, "v4", false)
 
 		data, _ := os.ReadFile(f)
 		want := "      uses: actions/checkout@v4 # pinned\n"
@@ -71,7 +71,7 @@ func TestRewriteFile(t *testing.T) {
 
 	t.Run("does not panic on missing file", func(t *testing.T) {
 		pattern := regexp.MustCompile(`(.*)`)
-		rewriteFile("/nonexistent/path/file.yml", pattern, "x")
+		rewriteFile("/nonexistent/path/file.yml", pattern, "x", false)
 	})
 }
 
@@ -81,7 +81,7 @@ func TestApplyUpdate(t *testing.T) {
 		os.WriteFile(f, []byte("      - uses: actions/checkout@v3\n"), 0644)
 
 		a := action{actionRef: "actions/checkout", latestTag: "v4", files: []string{f}}
-		applyUpdate(a, "v4", "")
+		applyUpdate(a, "v4", "", false)
 
 		data, _ := os.ReadFile(f)
 		if string(data) != "      - uses: actions/checkout@v4\n" {
@@ -95,7 +95,7 @@ func TestApplyUpdate(t *testing.T) {
 
 		sha := "abc1234567890abc1234567890abc1234567890ab"
 		a := action{actionRef: "actions/checkout", latestTag: "v4", files: []string{f}}
-		applyUpdate(a, sha, "v4")
+		applyUpdate(a, sha, "v4", false)
 
 		data, _ := os.ReadFile(f)
 		want := "      - uses: actions/checkout@" + sha + " # v4\n"
@@ -111,7 +111,7 @@ func TestApplyUpdate(t *testing.T) {
 		os.WriteFile(f, []byte("      - uses: actions/checkout@"+sha1+" # v3\n"), 0644)
 
 		a := action{actionRef: "actions/checkout", files: []string{f}}
-		applyUpdate(a, sha2, "v4")
+		applyUpdate(a, sha2, "v4", false)
 
 		data, _ := os.ReadFile(f)
 		want := "      - uses: actions/checkout@" + sha2 + " # v4\n"
@@ -127,7 +127,7 @@ func TestApplyReplace(t *testing.T) {
 		os.WriteFile(f, []byte("      - uses: actions/checkout@v3\n"), 0644)
 
 		sha := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-		applyReplace("actions/checkout", "v3", sha, []string{f})
+		applyReplace("actions/checkout", "v3", sha, []string{f}, false)
 
 		data, _ := os.ReadFile(f)
 		want := "      - uses: actions/checkout@" + sha + " # v3\n"
@@ -141,7 +141,7 @@ func TestApplyReplace(t *testing.T) {
 		f := filepath.Join(t.TempDir(), "ci.yml")
 		os.WriteFile(f, []byte("      - uses: actions/checkout@"+sha+" # v3\n"), 0644)
 
-		applyReplace("actions/checkout", sha, "v4", []string{f})
+		applyReplace("actions/checkout", sha, "v4", []string{f}, false)
 
 		data, _ := os.ReadFile(f)
 		if string(data) != "      - uses: actions/checkout@v4\n" {
@@ -154,7 +154,7 @@ func TestApplyReplace(t *testing.T) {
 		f := filepath.Join(t.TempDir(), "ci.yml")
 		os.WriteFile(f, []byte("      - uses: actions/checkout@"+sha+"\n"), 0644)
 
-		applyReplace("actions/checkout", sha, "v4", []string{f})
+		applyReplace("actions/checkout", sha, "v4", []string{f}, false)
 
 		data, _ := os.ReadFile(f)
 		if string(data) != "      - uses: actions/checkout@v4\n" {

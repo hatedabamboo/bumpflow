@@ -1,5 +1,13 @@
 # CHANGELOG
 
+## 2026-05-25
+
+- (feat) Release v1.0.0: added `--dry-run` option, added `.bumpflow.yaml` config file [ab8be39](https://github.com/hatedabamboo/bumpflow/commit/ab8be39c12a06464d1dd75c860da10e8b398f82b)
+
+## 2026-05-02
+
+- (feat) Write a comment with tag of the workflow (#5) [2a75cac](https://github.com/hatedabamboo/bumpflow/commit/2a75cacb6090442813fc455bd86980a2dee464a8)
+
 ## 2026-05-01
 
 - (feat) Rename bumpflow to bumpflow [6ee7c7e](https://github.com/hatedabamboo/bumpflow/commit/6ee7c7e00bcce60219d722440854cc332c0b2ed7)

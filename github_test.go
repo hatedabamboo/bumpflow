@@ -51,6 +51,60 @@ func TestGithubGet(t *testing.T) {
 		}
 	})
 
+	t.Run("401 returns authentication error", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusUnauthorized)
+		}))
+		defer srv.Close()
+
+		_, err := githubGet(srv.URL)
+		if err == nil {
+			t.Fatal("expected error for 401")
+		}
+		if !strings.Contains(err.Error(), "invalid or has been revoked") {
+			t.Errorf("expected revoked-token message, got: %v", err)
+		}
+	})
+
+	t.Run("403 with rate limit header returns rate limit error", func(t *testing.T) {
+		orig := ghToken
+		ghToken = "sometoken"
+		defer func() { ghToken = orig }()
+
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("X-RateLimit-Remaining", "0")
+			w.WriteHeader(http.StatusForbidden)
+		}))
+		defer srv.Close()
+
+		_, err := githubGet(srv.URL)
+		if err == nil {
+			t.Fatal("expected error for rate-limited 403")
+		}
+		if !strings.Contains(err.Error(), "rate limit exceeded") {
+			t.Errorf("expected rate limit message, got: %v", err)
+		}
+	})
+
+	t.Run("403 with token but no rate limit header returns forbidden error", func(t *testing.T) {
+		orig := ghToken
+		ghToken = "sometoken"
+		defer func() { ghToken = orig }()
+
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusForbidden)
+		}))
+		defer srv.Close()
+
+		_, err := githubGet(srv.URL)
+		if err == nil {
+			t.Fatal("expected error for forbidden 403 with token")
+		}
+		if !strings.Contains(err.Error(), "access forbidden") {
+			t.Errorf("expected forbidden message, got: %v", err)
+		}
+	})
+
 	t.Run("sends auth header when token set", func(t *testing.T) {
 		orig := ghToken
 		ghToken = "mytoken"
