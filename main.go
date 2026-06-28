@@ -2,8 +2,10 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -13,18 +15,9 @@ import (
 )
 
 const defaultTagCount = 10
+const configFilePath = ".bumpflow.yaml"
 
 var version = "dev"
-
-type config struct {
-	useTag     bool
-	tagCount   int
-	useHash    bool
-	updateAll  bool
-	useReplace bool
-	verbose    bool
-	dryRun     bool
-}
 
 func initLogger(v bool) {
 	level := slog.LevelWarn
@@ -38,15 +31,17 @@ func printUsage() {
 	fmt.Printf("Usage: %s [options]\n", os.Args[0])
 	fmt.Print(`
 Options:
-  -t, --tags        Always use tags when updating (skip prompt)
-  -n, --count       Number of latest tags to fetch (default 10)
-  -s, --sha         Always use commit hashes when updating (skip prompt)
+  -a, --action      Update only the specified action (owner/repo)
   -A, --update-all  Update all outdated actions without prompting
                     (defaults to hash; respects -t or -s if provided)
-  -r, --replace     Convert pinned tags↔SHAs without upgrading versions
   -d, --dry-run     Preview changes without modifying any files
-  -v, --verbose     Enable verbose logging
   -h, --help        Show this help
+  -f, --file        Update only actions in the specified workflow file
+  -n, --count       Number of latest tags to fetch (default 10)
+  -r, --replace     Convert pinned tags↔SHAs without upgrading versions
+  -s, --sha         Always use commit hashes when updating (skip prompt)
+  -t, --tags        Always use tags when updating (skip prompt)
+  -v, --verbose     Enable verbose logging
   -V, --version     Show version
 
 Environment:
@@ -61,66 +56,78 @@ Config file (.bumpflow.yaml):
   always_sha: true    # same as -s
   always_tag: false   # same as -t
   count: 5            # same as -n
+  dry_run: false      # same as -d
+  target_action: ""   # same as -a
+  target_file: ""     # same as -f
   update_all: false   # same as -A
   verbose: false      # same as -v
-  dry_run: false      # same as -d
 `)
 }
 
-func parseArgs(base config) config {
+func parseArgs(base config) (config, error) {
 	cfg := base
 	args := os.Args[1:]
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		switch arg {
-		case "-t", "--tags":
-			cfg.useTag = true
+		case "-a", "--action":
+			if i+1 >= len(args) {
+				return cfg, fmt.Errorf("Error: -a requires a value")
+			}
+			i++
+			val := args[i]
+			if !strings.Contains(val, "/") {
+				return cfg, fmt.Errorf("Error: action must be in owner/repo format")
+			}
+			cfg.targetAction = val
+		case "-A", "--update-all":
+			cfg.updateAll = true
+		case "-d", "--dry-run":
+			cfg.dryRun = true
+		case "-f", "--file":
+			if i+1 >= len(args) {
+				return cfg, fmt.Errorf("Error: -f requires a value")
+			}
+			i++
+			cfg.targetFile = args[i]
+		case "-h", "--help":
+			printUsage()
+			os.Exit(0)
 		case "-n", "--count":
 			if i+1 >= len(args) {
-				fmt.Fprintln(os.Stderr, "Error: -n requires a value")
-				os.Exit(1)
+				return cfg, fmt.Errorf("Error: -n requires a value")
 			}
 			i++
 			n, err := strconv.Atoi(args[i])
 			if err != nil || n < 1 {
-				fmt.Fprintln(os.Stderr, "Error: -n value must be a positive integer")
-				os.Exit(1)
+				return cfg, fmt.Errorf("Error: -n value must be a positive integer")
 			}
 			cfg.tagCount = n
-		case "-s", "--sha":
-			cfg.useHash = true
-		case "-A", "--update-all":
-			cfg.updateAll = true
 		case "-r", "--replace":
 			cfg.useReplace = true
-		case "-d", "--dry-run":
-			cfg.dryRun = true
+		case "-s", "--sha":
+			cfg.useHash = true
+		case "-t", "--tags":
+			cfg.useTag = true
 		case "-v", "--verbose":
 			cfg.verbose = true
-		case "-h", "--help":
-			printUsage()
-			os.Exit(0)
 		case "-V", "--version":
 			fmt.Println("bumpflow", version)
 			os.Exit(0)
 		default:
-			fmt.Fprintf(os.Stderr, "Unknown flag: %s\n", arg)
-			printUsage()
-			os.Exit(1)
+			return cfg, fmt.Errorf("Unknown flag: %s", arg)
 		}
 	}
 	if cfg.tagCount == 0 {
 		cfg.tagCount = defaultTagCount
 	}
 	if cfg.useTag && cfg.useHash {
-		fmt.Fprintln(os.Stderr, "Error: -t and -s are mutually exclusive.")
-		os.Exit(1)
+		return cfg, fmt.Errorf("Error: -t and -s are mutually exclusive.")
 	}
 	if cfg.updateAll && cfg.useReplace {
-		fmt.Fprintln(os.Stderr, "Error: -A and -r are mutually exclusive.")
-		os.Exit(1)
+		return cfg, fmt.Errorf("Error: -A and -r are mutually exclusive.")
 	}
-	return cfg
+	return cfg, nil
 }
 
 func isGitRepo() bool {
@@ -130,17 +137,39 @@ func isGitRepo() bool {
 	return cmd.Run() == nil
 }
 
+func validateTargetFile(file string) error {
+	if file == "" {
+		return nil
+	}
+	if _, err := os.Stat(file); errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("Error: file %s does not exist", file)
+	} else if err != nil {
+		return fmt.Errorf("Error: cannot access file %s: %w", file, err)
+	}
+	return nil
+}
+
 func main() {
-	fileCfg, cfgFileFound := loadConfigFile()
-	cfg := parseArgs(fileCfg)
+	fileCfg, cfgFileFound := loadConfigFile(configFilePath)
+	cfg, err := parseArgs(fileCfg)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, cRed(err.Error()))
+		os.Exit(1)
+	}
+	if err := validateTargetFile(cfg.targetFile); err != nil {
+		fmt.Fprintln(os.Stderr, cRed(err.Error()))
+		os.Exit(1)
+	}
 	initLogger(cfg.verbose)
 	if cfgFileFound {
 		slog.Debug("config file loaded", "path", configFilePath,
 			"always_sha", fileCfg.useHash,
 			"always_tag", fileCfg.useTag,
 			"count", fileCfg.tagCount,
-			"update_all", fileCfg.updateAll,
 			"dry_run", fileCfg.dryRun,
+			"target_action", fileCfg.targetAction,
+			"target_file", fileCfg.targetFile,
+			"update_all", fileCfg.updateAll,
 			"verbose", fileCfg.verbose,
 		)
 	} else {
@@ -157,11 +186,18 @@ func main() {
 	}
 
 	if cfg.useReplace {
-		replace(cfg.dryRun)
+		if err := replace(cfg); err != nil {
+			fmt.Fprintln(os.Stderr, cRed("Error: "+err.Error()))
+			os.Exit(1)
+		}
 		return
 	}
 
-	remaining, hadErrors := scan(cfg)
+	remaining, hadErrors, err := scan(cfg)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, cRed("Error: "+err.Error()))
+		os.Exit(1)
+	}
 
 	if len(remaining) == 0 {
 		if !hadErrors {
@@ -215,7 +251,10 @@ func main() {
 
 		fmt.Println()
 		fmt.Print("Which action to update? (number, or q to quit): ")
-		line, _ := reader.ReadString('\n')
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			break
+		}
 		line = strings.TrimSpace(line)
 
 		if strings.ToLower(line) == "q" {

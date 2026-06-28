@@ -1,16 +1,38 @@
----
 name: Release
 
 on:
   push:
-    tags:
-      - "v*"
+    branches:
+      - main
+    paths:
+      - VERSION
+  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
+  tag:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.create_tag.outputs.version }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-tags: true
+
+      - name: Create tag
+        id: create_tag
+        run: |
+          version=$(cat VERSION | tr -d '\n')
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "$version" -m "Release $version"
+          git push origin "$version"
+          echo "version=$version" >> $GITHUB_OUTPUT
+
   release:
+    needs: tag
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -38,7 +60,8 @@ jobs:
       - name: Get previous tag
         id: prev_tag
         run: |
-          prev=$(git tag --sort=-version:refname | grep -v "^${{ github.ref_name }}$" | head -1)
+          version="${{ needs.tag.outputs.version }}"
+          prev=$(git tag --sort=-version:refname | grep -v "^${version}$" | head -1)
           echo "tag=$prev" >> $GITHUB_OUTPUT
 
       - name: Build
@@ -50,9 +73,10 @@ jobs:
           [ "$GOOS" = "windows" ] && EXT=".exe"
           go build -trimpath -ldflags="-s -w -X main.version=$(cat VERSION | tr -d '\n')" -o bumpflow-${{ matrix.goos }}-${{ matrix.goarch }}${EXT} .
 
-      - name: Upload to release
+      - name: Release
         uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda
         with:
+          tag_name: ${{ needs.tag.outputs.version }}
           files: bumpflow-${{ matrix.goos }}-${{ matrix.goarch }}*
           body: |
-            **Full Changelog**: [${{ steps.prev_tag.outputs.tag }}...${{ github.ref_name }}](https://github.com/${{ github.repository }}/compare/${{ steps.prev_tag.outputs.tag }}...${{ github.ref_name }})
+            **Full Changelog**: [${{ steps.prev_tag.outputs.tag }}...${{ needs.tag.outputs.version }}](https://github.com/${{ github.repository }}/compare/${{ steps.prev_tag.outputs.tag }}...${{ needs.tag.outputs.version }})
