@@ -1,5 +1,9 @@
 # CHANGELOG
 
+## 2026-06-28
+
+- (feat) Release v1.1.0: target actions and files explicitly [9004e44](https://github.com/hatedabamboo/bumpflow/commit/9004e44693cce68db70367cc1044dee555e0233b)
+
 ## 2026-05-29
 
 - (fix) Don't remove next line comment (#6) [ce9e151](https://github.com/hatedabamboo/bumpflow/commit/ce9e1514f9eb9e6e77eb8963dd0797df4c853d90)
