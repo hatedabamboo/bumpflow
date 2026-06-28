@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-var semverRe = regexp.MustCompile(`^v?\d+(?:\.\d+)?`)
+var semverRe = regexp.MustCompile(`^v?\d+(?:\.\d+)*$`)
 
 func parseVersion(v string) ([]int, bool) {
 	v = strings.TrimPrefix(v, "v")

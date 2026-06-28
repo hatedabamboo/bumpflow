@@ -44,12 +44,14 @@ bumpflow [options]
 
 | Flag | Long form | Description |
 |------|-----------|-------------|
-| `-t` | `--tags` | Always use tags when updating (skips the prompt) |
-| `-n` | `--count` | Number of latest tags to fetch (default 10) |
-| `-s` | `--sha` | Always use commit hashes when updating (skips the prompt) |
+| `-a` | `--action` | Update only the specified action (`owner/repo`) |
 | `-A` | `--update-all` | Update all outdated actions without prompting (uses hash by default; respects `-t` or `-s`) |
-| `-r` | `--replace` | Convert pinned tags↔SHAs without upgrading versions |
 | `-d` | `--dry-run` | Preview what would be updated without modifying any files |
+| `-f` | `--file` | Update only actions in the specified workflow file |
+| `-n` | `--count` | Number of latest tags to fetch (default 10) |
+| `-r` | `--replace` | Convert pinned tags↔SHAs without upgrading versions |
+| `-s` | `--sha` | Always use commit hashes when updating (skips the prompt) |
+| `-t` | `--tags` | Always use tags when updating (skips the prompt) |
 | `-v` | `--verbose` | Enable verbose logging |
 | `-V` | `--version` | Show version |
 | `-h` | `--help` | Show usage |
@@ -64,9 +66,11 @@ Persistent defaults can be set in a `.bumpflow.yaml` file at the repo root. CLI 
 always_sha: true    # same as -s
 always_tag: false   # same as -t
 count: 5            # same as -n
+dry_run: false      # same as -d
+target_action: ""   # same as -a
+target_file: ""     # same as -f
 update_all: false   # same as -A
 verbose: false      # same as -v
-dry_run: false      # same as -d
 ```
 
 Only the keys you want to override need to be present.

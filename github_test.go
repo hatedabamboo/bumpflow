@@ -125,17 +125,13 @@ func TestGithubGet(t *testing.T) {
 }
 
 func TestGetCommitDate(t *testing.T) {
-	orig := apiBaseURL
-	defer func() { apiBaseURL = orig }()
-
 	t.Run("returns YYYY-MM-DD portion", func(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Write([]byte(`{"commit":{"committer":{"date":"2024-01-15T10:30:00Z"}}}`))
 		}))
 		defer srv.Close()
-		apiBaseURL = srv.URL
 
-		got := getCommitDate("owner/repo", "abc123")
+		got := getCommitDate("owner/repo", "abc123", srv.URL)
 		if got != "2024-01-15" {
 			t.Errorf("got %q, want %q", got, "2024-01-15")
 		}
@@ -146,9 +142,8 @@ func TestGetCommitDate(t *testing.T) {
 			w.WriteHeader(http.StatusNotFound)
 		}))
 		defer srv.Close()
-		apiBaseURL = srv.URL
 
-		got := getCommitDate("owner/repo", "abc123")
+		got := getCommitDate("owner/repo", "abc123", srv.URL)
 		if got != "unknown" {
 			t.Errorf("got %q, want %q", got, "unknown")
 		}
@@ -159,9 +154,8 @@ func TestGetCommitDate(t *testing.T) {
 			w.Write([]byte(`not json`))
 		}))
 		defer srv.Close()
-		apiBaseURL = srv.URL
 
-		got := getCommitDate("owner/repo", "abc123")
+		got := getCommitDate("owner/repo", "abc123", srv.URL)
 		if got != "unknown" {
 			t.Errorf("got %q, want %q", got, "unknown")
 		}
@@ -169,9 +163,6 @@ func TestGetCommitDate(t *testing.T) {
 }
 
 func TestGetRepoTagInfo(t *testing.T) {
-	orig := apiBaseURL
-	defer func() { apiBaseURL = orig }()
-
 	t.Run("returns latest semver tag", func(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if strings.Contains(r.URL.Path, "/commits/") {
@@ -185,9 +176,8 @@ func TestGetRepoTagInfo(t *testing.T) {
 			]`))
 		}))
 		defer srv.Close()
-		apiBaseURL = srv.URL
 
-		info, err := getRepoTagInfo("owner/repo", 10)
+		info, err := getRepoTagInfo("owner/repo", srv.URL, 10)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -218,9 +208,8 @@ func TestGetRepoTagInfo(t *testing.T) {
 			]`))
 		}))
 		defer srv.Close()
-		apiBaseURL = srv.URL
 
-		info, err := getRepoTagInfo("owner/repo", 2)
+		info, err := getRepoTagInfo("owner/repo", srv.URL, 2)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -247,9 +236,8 @@ func TestGetRepoTagInfo(t *testing.T) {
 			]`))
 		}))
 		defer srv.Close()
-		apiBaseURL = srv.URL
 
-		info, err := getRepoTagInfo("owner/repo", 100)
+		info, err := getRepoTagInfo("owner/repo", srv.URL, 100)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -263,9 +251,8 @@ func TestGetRepoTagInfo(t *testing.T) {
 			w.Write([]byte(`[{"name":"latest","commit":{"sha":"aaa"}}]`))
 		}))
 		defer srv.Close()
-		apiBaseURL = srv.URL
 
-		info, err := getRepoTagInfo("owner/repo", 10)
+		info, err := getRepoTagInfo("owner/repo", srv.URL, 10)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -279,9 +266,8 @@ func TestGetRepoTagInfo(t *testing.T) {
 			w.WriteHeader(http.StatusInternalServerError)
 		}))
 		defer srv.Close()
-		apiBaseURL = srv.URL
 
-		_, err := getRepoTagInfo("owner/repo", 10)
+		_, err := getRepoTagInfo("owner/repo", srv.URL, 10)
 		if err == nil {
 			t.Fatal("expected error")
 		}
@@ -311,12 +297,36 @@ func TestBestTagForSHA(t *testing.T) {
 			t.Errorf("got %q, want empty string", got)
 		}
 	})
+
+	t.Run("prefers precise version over short alias", func(t *testing.T) {
+		info2 := &repoInfo{
+			tags: map[string]string{
+				"v9":      "abc",
+				"v9.0.0":  "abc",
+				"v10.0.0": "def",
+			},
+		}
+		got := bestTagForSHA(info2, "abc")
+		if got != "v9.0.0" {
+			t.Errorf("got %q, want v9.0.0", got)
+		}
+	})
+
+	t.Run("prefers higher version regardless of precision", func(t *testing.T) {
+		info2 := &repoInfo{
+			tags: map[string]string{
+				"v2.0":   "abc",
+				"v3.0.0": "abc",
+			},
+		}
+		got := bestTagForSHA(info2, "abc")
+		if got != "v3.0.0" {
+			t.Errorf("got %q, want v3.0.0", got)
+		}
+	})
 }
 
 func TestFetchRepos(t *testing.T) {
-	orig := apiBaseURL
-	defer func() { apiBaseURL = orig }()
-
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(r.URL.Path, "/commits/") {
 			w.Write([]byte(`{"commit":{"committer":{"date":"2024-01-01T00:00:00Z"}}}`))
@@ -325,9 +335,8 @@ func TestFetchRepos(t *testing.T) {
 		w.Write([]byte(`[{"name":"v1.0.0","commit":{"sha":"abc1234"}}]`))
 	}))
 	defer srv.Close()
-	apiBaseURL = srv.URL
 
-	checked, errs := fetchRepos([]string{"owner/repo-a", "owner/repo-b"}, 10)
+	checked, errs := fetchRepos([]string{"owner/repo-a", "owner/repo-b"}, 10, srv.URL)
 
 	if len(errs) != 0 {
 		t.Errorf("unexpected errors: %v", errs)

@@ -2,7 +2,9 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -56,9 +58,14 @@ func shortSHA(sha string) string {
 // Padding must be applied to raw strings before colorizing to keep column widths correct.
 func rewriteFile(wfFile string, pattern *regexp.Regexp, replacement string, dryRun bool) {
 	slog.Debug("reading workflow file", "file", wfFile)
+	fi, err := os.Stat(wfFile)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "  %s %s: %v\n", cRed("Error reading"), wfFile, err)
+		return
+	}
 	data, err := os.ReadFile(wfFile)
 	if err != nil {
-		fmt.Printf("  %s %s: %v\n", cRed("Error reading"), wfFile, err)
+		fmt.Fprintf(os.Stderr, "  %s %s: %v\n", cRed("Error reading"), wfFile, err)
 		return
 	}
 	updated := pattern.ReplaceAll(data, []byte("${1}"+replacement))
@@ -70,8 +77,8 @@ func rewriteFile(wfFile string, pattern *regexp.Regexp, replacement string, dryR
 		return
 	}
 	slog.Debug("writing workflow file", "file", wfFile)
-	if err := os.WriteFile(wfFile, updated, 0644); err != nil {
-		fmt.Printf("  %s %s: %v\n", cRed("Error writing"), wfFile, err)
+	if err := os.WriteFile(wfFile, updated, fi.Mode()); err != nil {
+		fmt.Fprintf(os.Stderr, "  %s %s: %v\n", cRed("Error writing"), wfFile, err)
 		return
 	}
 	fmt.Printf("  %s %s\n", cGreen("Updated"), wfFile)
@@ -143,17 +150,79 @@ func printFetchErrors(fetchErrs map[string]error) {
 		return
 	}
 	if ghToken == "" {
-		fmt.Println(cRed("\nEncountered an error: most likely hit the GitHub API rate limit. Anonymous GitHub API requests are limited to 60/hour — set GH_TOKEN environment variable or use a VPN."))
+		fmt.Println(cRed("\nEncountered an error: perhaps you don't have an access to the repository, or most likely hit the GitHub API rate limit.\nAnonymous GitHub API requests are limited to 60/hour — set GH_TOKEN environment variable or use a VPN."))
 	} else {
 		fmt.Println(cRed("\nEncountered an error fetching some repositories. Check your GH_TOKEN and network connectivity."))
 	}
 }
 
-func scan(cfg config) ([]action, bool) {
-	entries, ownerRepos := collectEntries()
+func filterEntries(entries []rawEntry, targetFile, targetAction string) []rawEntry {
+	if targetFile == "" && targetAction == "" {
+		return entries
+	}
+	var absTarget string
+	if targetFile != "" {
+		absTarget, _ = filepath.Abs(targetFile)
+	}
+	var result []rawEntry
+	for _, e := range entries {
+		if targetFile != "" {
+			absWf, _ := filepath.Abs(e.wfFile)
+			if absWf != absTarget {
+				continue
+			}
+		}
+		if targetAction != "" && e.actionRef != targetAction {
+			continue
+		}
+		result = append(result, e)
+	}
+	return result
+}
+
+func prepareEntries(cfg config, entries []rawEntry) ([]rawEntry, []string, error) {
+	if cfg.targetFile != "" {
+		entries = filterEntries(entries, cfg.targetFile, "")
+		if len(entries) == 0 {
+			return nil, nil, fmt.Errorf("no actions found in %s — check the path and try again", cfg.targetFile)
+		}
+	}
+	if cfg.targetAction != "" {
+		entries = filterEntries(entries, "", cfg.targetAction)
+		if len(entries) == 0 {
+			if cfg.targetFile != "" {
+				return nil, nil, fmt.Errorf("action %s not found in %s", cfg.targetAction, cfg.targetFile)
+			}
+			return nil, nil, fmt.Errorf("action %s not found in any scanned workflow files", cfg.targetAction)
+		}
+	}
+
+	targetRepos := map[string]struct{}{}
+	for _, e := range entries {
+		targetRepos[e.ownerRepo] = struct{}{}
+	}
+	ownerRepos := make([]string, 0, len(targetRepos))
+	for repo := range targetRepos {
+		ownerRepos = append(ownerRepos, repo)
+	}
+	sort.Strings(ownerRepos)
+	return entries, ownerRepos, nil
+}
+
+func scan(cfg config) ([]action, bool, error) {
+	rawEntries, _ := collectEntries()
+	entries, ownerRepos, err := prepareEntries(cfg, rawEntries)
+	if err != nil {
+		return nil, false, err
+	}
+
+	if len(ownerRepos) == 0 {
+		fmt.Println("No GitHub Actions found in", workflowsDir)
+		return nil, false, nil
+	}
 
 	fmt.Printf("Fetching %d repo(s)...\n", len(ownerRepos))
-	checked, fetchErrs := fetchRepos(ownerRepos, cfg.tagCount)
+	checked, fetchErrs := fetchRepos(ownerRepos, cfg.tagCount, defaultAPIBaseURL)
 
 	installedVersions := map[string][]string{}
 	seenInstalled := map[string]map[string]struct{}{}
@@ -171,8 +240,6 @@ func scan(cfg config) ([]action, bool) {
 		}
 	}
 
-	sortedRepos := append([]string(nil), ownerRepos...)
-	sort.Strings(sortedRepos)
 	fmt.Println()
 	fmt.Printf("  %s %s %s\n",
 		bold(fmt.Sprintf("%-45s", "Action")),
@@ -184,7 +251,7 @@ func scan(cfg config) ([]action, bool) {
 		cDim(fmt.Sprintf("%-30s", "-----------------")),
 		cDim("--------------"),
 	)
-	for _, repo := range sortedRepos {
+	for _, repo := range ownerRepos {
 		info := checked[repo]
 		installed := strings.Join(installedVersions[repo], ", ")
 		col1 := fmt.Sprintf("%-45s", repo)
@@ -251,7 +318,7 @@ func scan(cfg config) ([]action, bool) {
 		sort.Strings(a.files)
 		result = append(result, a)
 	}
-	return result, len(fetchErrs) > 0
+	return result, len(fetchErrs) > 0, nil
 }
 
 func pickRef(a action, cfg config, r *bufio.Reader) (string, string, bool) {
@@ -260,7 +327,13 @@ func pickRef(a action, cfg config, r *bufio.Reader) (string, string, bool) {
 	}
 	fmt.Println("  [Enter]\tSkip")
 	fmt.Print("  Select version (number): ")
-	line, _ := r.ReadString('\n')
+	line, err := r.ReadString('\n')
+	if err != nil {
+		if !errors.Is(err, io.EOF) {
+			slog.Warn("failed to read input", "error", err)
+		}
+		return "", "", false
+	}
 	line = strings.TrimSpace(line)
 
 	if line == "" {
@@ -283,7 +356,13 @@ func pickRef(a action, cfg config, r *bufio.Reader) (string, string, bool) {
 	fmt.Printf("  [t] Tag:  %s\n", cGreen(selected.tag))
 	fmt.Printf("  [s] SHA:  %s\n", cCyan(selected.sha))
 	fmt.Print("  Use tag or hash? (t/s): ")
-	choice, _ := r.ReadString('\n')
+	choice, err := r.ReadString('\n')
+	if err != nil {
+		if !errors.Is(err, io.EOF) {
+			slog.Warn("failed to read input", "error", err)
+		}
+		return "", "", false
+	}
 	switch strings.TrimSpace(choice) {
 	case "t":
 		return selected.tag, "", true
@@ -294,15 +373,20 @@ func pickRef(a action, cfg config, r *bufio.Reader) (string, string, bool) {
 	}
 }
 
-func replace(dryRun bool) {
-	entries, ownerRepos := collectEntries()
+func replace(cfg config) error {
+	rawEntries, _ := collectEntries()
+	entries, ownerRepos, err := prepareEntries(cfg, rawEntries)
+	if err != nil {
+		return err
+	}
+
 	if len(ownerRepos) == 0 {
 		fmt.Println("No GitHub Actions found in", workflowsDir)
-		return
+		return nil
 	}
 
 	fmt.Printf("Fetching %d repo(s)...\n", len(ownerRepos))
-	checked, fetchErrs := fetchRepos(ownerRepos, 1)
+	checked, fetchErrs := fetchRepos(ownerRepos, 1, defaultAPIBaseURL)
 	printFetchErrors(fetchErrs)
 
 	type key struct{ ref, tag string }
@@ -340,7 +424,7 @@ func replace(dryRun bool) {
 
 	if len(orderedKeys) == 0 {
 		fmt.Println("\nNo convertible actions found.")
-		return
+		return nil
 	}
 
 	sort.Slice(orderedKeys, func(i, j int) bool {
@@ -364,20 +448,26 @@ func replace(dryRun bool) {
 				fmt.Printf("  [%d] %s: %s %s %s  %s\n",
 					i+1, bold(item.actionRef),
 					cCyan(shortSHA(item.current)), cDim("→"), cGreen(item.target),
-					cDim("(sha→tag)"),
+					cDim("(sha → tag)"),
 				)
 			} else {
 				fmt.Printf("  [%d] %s: %s %s %s  %s\n",
 					i+1, bold(item.actionRef),
 					cYellow(item.current), cDim("→"), cCyan(shortSHA(item.target)),
-					cDim("(tag→sha)"),
+					cDim("(tag → sha)"),
 				)
 			}
 		}
 
 		fmt.Println()
 		fmt.Print("Which action to convert? (number, or q to quit): ")
-		line, _ := reader.ReadString('\n')
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			if !errors.Is(err, io.EOF) {
+				slog.Warn("failed to read input", "error", err)
+			}
+			break
+		}
 		line = strings.TrimSpace(line)
 
 		if strings.ToLower(line) == "q" {
@@ -402,7 +492,8 @@ func replace(dryRun bool) {
 			toStr = cCyan(item.target)
 		}
 		fmt.Printf("\nConverting %s: %s %s %s\n\n", bold(item.actionRef), fromStr, cDim("→"), toStr)
-		applyReplace(item.actionRef, item.current, item.target, item.files, dryRun)
+		applyReplace(item.actionRef, item.current, item.target, item.files, cfg.dryRun)
 		fmt.Println(cGreen("\n  Done."))
 	}
+	return nil
 }

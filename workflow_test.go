@@ -232,6 +232,136 @@ func TestPickRef(t *testing.T) {
 	})
 }
 
+func TestFilterEntries(t *testing.T) {
+	ci := "/fake/workflows/ci.yml"
+	release := "/fake/workflows/release.yml"
+
+	all := []rawEntry{
+		{wfFile: ci, actionRef: "actions/checkout", ownerRepo: "actions/checkout"},
+		{wfFile: ci, actionRef: "actions/setup-go", ownerRepo: "actions/setup-go"},
+		{wfFile: release, actionRef: "actions/checkout", ownerRepo: "actions/checkout"},
+	}
+
+	tests := []struct {
+		name         string
+		targetFile   string
+		targetAction string
+		wantLen      int
+	}{
+		{"no filters returns all", "", "", 3},
+		{"file filter matches ci.yml", ci, "", 2},
+		{"file filter no match", "/fake/workflows/other.yml", "", 0},
+		{"action filter matches checkout", "", "actions/checkout", 2},
+		{"action filter no match", "", "actions/nonexistent", 0},
+		{"both set entry matches both", ci, "actions/checkout", 1},
+		{"file matches action does not", ci, "actions/nonexistent", 0},
+		{"action matches file does not", "/fake/workflows/other.yml", "actions/checkout", 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := filterEntries(all, tt.targetFile, tt.targetAction)
+			if len(got) != tt.wantLen {
+				t.Errorf("filterEntries returned %d entries, want %d", len(got), tt.wantLen)
+			}
+		})
+	}
+}
+
+func TestPrepareEntries(t *testing.T) {
+	ci := "/fake/workflows/ci.yml"
+	release := "/fake/workflows/release.yml"
+
+	all := []rawEntry{
+		{wfFile: ci, actionRef: "actions/checkout", ownerRepo: "actions/checkout"},
+		{wfFile: ci, actionRef: "actions/setup-go", ownerRepo: "actions/setup-go"},
+		{wfFile: release, actionRef: "actions/checkout", ownerRepo: "actions/checkout"},
+	}
+
+	t.Run("no filters returns all entries and sorted repos", func(t *testing.T) {
+		entries, repos, err := prepareEntries(config{}, all)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(entries) != 3 {
+			t.Errorf("got %d entries, want 3", len(entries))
+		}
+		if len(repos) != 2 {
+			t.Errorf("got %d repos, want 2", len(repos))
+		}
+		for i := 1; i < len(repos); i++ {
+			if repos[i] < repos[i-1] {
+				t.Errorf("repos not sorted: %v", repos)
+			}
+		}
+	})
+
+	t.Run("targetFile set entries found", func(t *testing.T) {
+		entries, _, err := prepareEntries(config{targetFile: ci}, all)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(entries) != 2 {
+			t.Errorf("got %d entries, want 2", len(entries))
+		}
+	})
+
+	t.Run("targetFile set no actions found", func(t *testing.T) {
+		_, _, err := prepareEntries(config{targetFile: "/fake/workflows/other.yml"}, all)
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "other.yml") {
+			t.Errorf("error should mention file path, got: %v", err)
+		}
+	})
+
+	t.Run("targetAction set action found", func(t *testing.T) {
+		entries, _, err := prepareEntries(config{targetAction: "actions/checkout"}, all)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(entries) != 2 {
+			t.Errorf("got %d entries, want 2", len(entries))
+		}
+	})
+
+	t.Run("targetAction set action not found", func(t *testing.T) {
+		_, _, err := prepareEntries(config{targetAction: "actions/nonexistent"}, all)
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "actions/nonexistent") {
+			t.Errorf("error should mention action name, got: %v", err)
+		}
+	})
+
+	t.Run("both set file not found", func(t *testing.T) {
+		cfg := config{targetFile: "/fake/workflows/other.yml", targetAction: "actions/checkout"}
+		_, _, err := prepareEntries(cfg, all)
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "other.yml") {
+			t.Errorf("error should mention file path, got: %v", err)
+		}
+	})
+
+	t.Run("both set file found but action not in file", func(t *testing.T) {
+		cfg := config{targetFile: ci, targetAction: "actions/nonexistent"}
+		_, _, err := prepareEntries(cfg, all)
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "actions/nonexistent") {
+			t.Errorf("error should mention action name, got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "ci.yml") {
+			t.Errorf("error should mention the file, got: %v", err)
+		}
+	})
+}
+
 func TestCollectEntries(t *testing.T) {
 	dir := t.TempDir()
 	wfDir := filepath.Join(dir, ".github", "workflows")

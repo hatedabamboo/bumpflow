@@ -1,7 +1,7 @@
 PREFIX ?= /usr/local
 VERSION := $(shell cat VERSION)
 
-.PHONY: all build install clean release
+.PHONY: all build install clean
 
 all: build
 
@@ -13,8 +13,3 @@ install: build
 
 clean:
 	rm -f bumpflow
-
-release:
-	$(MAKE) build
-	git tag $(VERSION)
-	git push origin $(VERSION)
