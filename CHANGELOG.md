@@ -2,7 +2,7 @@
 
 ## 2026-08-13
 
-- (feat) Release v1.2.0: cache fetched actions to reduce GH api calls [9a20b91](https://github.com/hatedabamboo/bumpflow/commit/9a20b915f2e756a8cab7adff34f430d8f0c45ff5)
+- (feat) Release v1.2.0: cache fetched actions to reduce GH api calls [67e00ad](https://github.com/hatedabamboo/bumpflow/commit/67e00adcdf7d33829483cab341a9e458a23aaf12)
 
 ## 2026-06-28
 
