@@ -222,7 +222,11 @@ func scan(cfg config) ([]action, bool, error) {
 	}
 
 	fmt.Printf("Fetching %d repo(s)...\n", len(ownerRepos))
-	checked, fetchErrs := fetchRepos(ownerRepos, cfg.tagCount, defaultAPIBaseURL)
+	cache := prepareCache(cfg)
+	checked, fetchErrs := fetchRepos(ownerRepos, cfg.tagCount, defaultAPIBaseURL, cache, cfg.cacheAge)
+	if cache != nil {
+		cache.save()
+	}
 
 	installedVersions := map[string][]string{}
 	seenInstalled := map[string]map[string]struct{}{}
@@ -386,7 +390,11 @@ func replace(cfg config) error {
 	}
 
 	fmt.Printf("Fetching %d repo(s)...\n", len(ownerRepos))
-	checked, fetchErrs := fetchRepos(ownerRepos, 1, defaultAPIBaseURL)
+	cache := prepareCache(cfg)
+	checked, fetchErrs := fetchRepos(ownerRepos, 1, defaultAPIBaseURL, cache, cfg.cacheAge)
+	if cache != nil {
+		cache.save()
+	}
 	printFetchErrors(fetchErrs)
 
 	type key struct{ ref, tag string }

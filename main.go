@@ -34,6 +34,9 @@ Options:
   -a, --action      Update only the specified action (owner/repo)
   -A, --update-all  Update all outdated actions without prompting
                     (defaults to hash; respects -t or -s if provided)
+  -C, --no-cache    Disable caching of fetched repo versions
+                    (~/.cache/bumpflow; caching is on by default)
+      --cache-age   Max age before a cached entry is refreshed (default 7d)
   -d, --dry-run     Preview changes without modifying any files
   -h, --help        Show this help
   -f, --file        Update only actions in the specified workflow file
@@ -48,19 +51,6 @@ Environment:
   GH_TOKEN  GitHub personal access token for authenticated API calls.
             Anonymous requests are limited to 60/hour.
   NO_COLOR  Disable colored output when set (any value).
-
-Config file (.bumpflow.yaml):
-  Place a .bumpflow.yaml at the repo root to set persistent defaults.
-  CLI flags always override config file settings.
-
-  always_sha: true    # same as -s
-  always_tag: false   # same as -t
-  count: 5            # same as -n
-  dry_run: false      # same as -d
-  target_action: ""   # same as -a
-  target_file: ""     # same as -f
-  update_all: false   # same as -A
-  verbose: false      # same as -v
 `)
 }
 
@@ -82,6 +72,18 @@ func parseArgs(base config) (config, error) {
 			cfg.targetAction = val
 		case "-A", "--update-all":
 			cfg.updateAll = true
+		case "-C", "--no-cache":
+			cfg.noCache = true
+		case "--cache-age":
+			if i+1 >= len(args) {
+				return cfg, fmt.Errorf("Error: --cache-age requires a value")
+			}
+			i++
+			d, err := parseCacheAge(args[i])
+			if err != nil || d <= 0 {
+				return cfg, fmt.Errorf("Error: --cache-age value must be a valid duration (e.g. 7d, 24h)")
+			}
+			cfg.cacheAge = d
 		case "-d", "--dry-run":
 			cfg.dryRun = true
 		case "-f", "--file":
@@ -120,6 +122,9 @@ func parseArgs(base config) (config, error) {
 	}
 	if cfg.tagCount == 0 {
 		cfg.tagCount = defaultTagCount
+	}
+	if !cfg.noCache && cfg.cacheAge == 0 {
+		cfg.cacheAge = defaultCacheAge
 	}
 	if cfg.useTag && cfg.useHash {
 		return cfg, fmt.Errorf("Error: -t and -s are mutually exclusive.")
@@ -165,6 +170,8 @@ func main() {
 		slog.Debug("config file loaded", "path", configFilePath,
 			"always_sha", fileCfg.useHash,
 			"always_tag", fileCfg.useTag,
+			"no_cache", fileCfg.noCache,
+			"cache_age", fileCfg.cacheAge,
 			"count", fileCfg.tagCount,
 			"dry_run", fileCfg.dryRun,
 			"target_action", fileCfg.targetAction,

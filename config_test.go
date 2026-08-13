@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"testing"
+	"time"
 )
 
 func TestLoadConfigFile(t *testing.T) {
@@ -71,6 +72,48 @@ always_sha: true`), 0644)
 		_, found := loadConfigFile(dir + "/nonexistent.yaml")
 		if found {
 			t.Error("expected found to be false")
+		}
+	})
+
+	t.Run("cache: true keeps caching enabled and parses cache_age", func(t *testing.T) {
+		dir := t.TempDir()
+		path := dir + "/.bumpflow.yaml"
+		os.WriteFile(path, []byte("cache: true\ncache_age: 3d\n"), 0644)
+		cfg, found := loadConfigFile(path)
+		if !found {
+			t.Fatal("expected config file to be found")
+		}
+		if cfg.noCache {
+			t.Error("expected noCache to be false")
+		}
+		if cfg.cacheAge != 3*24*time.Hour {
+			t.Errorf("cacheAge = %v, want %v", cfg.cacheAge, 3*24*time.Hour)
+		}
+	})
+
+	t.Run("cache: false disables caching", func(t *testing.T) {
+		dir := t.TempDir()
+		path := dir + "/.bumpflow.yaml"
+		os.WriteFile(path, []byte("cache: false\n"), 0644)
+		cfg, found := loadConfigFile(path)
+		if !found {
+			t.Fatal("expected config file to be found")
+		}
+		if !cfg.noCache {
+			t.Error("expected noCache to be true")
+		}
+	})
+
+	t.Run("ignores invalid cache_age", func(t *testing.T) {
+		dir := t.TempDir()
+		path := dir + "/.bumpflow.yaml"
+		os.WriteFile(path, []byte("cache_age: not-a-duration\n"), 0644)
+		cfg, found := loadConfigFile(path)
+		if !found {
+			t.Fatal("expected config file to be found")
+		}
+		if cfg.cacheAge != 0 {
+			t.Errorf("cacheAge = %v, want 0", cfg.cacheAge)
 		}
 	})
 }

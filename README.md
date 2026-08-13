@@ -46,6 +46,8 @@ bumpflow [options]
 |------|-----------|-------------|
 | `-a` | `--action` | Update only the specified action (`owner/repo`) |
 | `-A` | `--update-all` | Update all outdated actions without prompting (uses hash by default; respects `-t` or `-s`) |
+| `-C` | `--no-cache` | Disable caching of fetched repo versions in `~/.cache/bumpflow` (caching is on by default) |
+|      | `--cache-age` | Max age before a cached entry is refreshed (default `7d`); once older, falls straight through to the API |
 | `-d` | `--dry-run` | Preview what would be updated without modifying any files |
 | `-f` | `--file` | Update only actions in the specified workflow file |
 | `-n` | `--count` | Number of latest tags to fetch (default 10) |
@@ -58,6 +60,12 @@ bumpflow [options]
 
 `-t` and `-s` are mutually exclusive. `-A` and `-r` are mutually exclusive.
 
+## Caching
+
+bumpflow caches fetched tag/SHA data in `~/.cache/bumpflow/repos.json` — a plain, human-readable JSON file — to cut down on GitHub API calls across repeated runs, which matters most for anonymous requests (60/hour). Caching is on by default; pass `-C`/`--no-cache` (or set `cache: false` in `.bumpflow.yaml`) to disable it.
+
+Each cached entry is keyed by repo and stamped with the time it was fetched. On the next run, an entry is reused only if it's within the configured max age *and* holds at least as many tags as requested (via `-n`/`--count`); otherwise bumpflow goes straight to the GitHub API and refreshes it. The max age defaults to `7d` and can be changed with `--cache-age` (or `cache_age` in the config file), accepting either a day count with a `d` suffix (`3d`) or a Go duration string (`12h`, `90m`).
+
 ## Config file
 
 Persistent defaults can be set in a `.bumpflow.yaml` file at the repo root. CLI flags always take precedence.
@@ -65,6 +73,8 @@ Persistent defaults can be set in a `.bumpflow.yaml` file at the repo root. CLI 
 ```yaml
 always_sha: true    # same as -s
 always_tag: false   # same as -t
+cache: true         # set to false to disable, same as -C
+cache_age: 7d       # same as --cache-age
 count: 5            # same as -n
 dry_run: false      # same as -d
 target_action: ""   # same as -a

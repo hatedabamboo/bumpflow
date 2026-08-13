@@ -4,7 +4,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestGithubGet(t *testing.T) {
@@ -336,7 +338,7 @@ func TestFetchRepos(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	checked, errs := fetchRepos([]string{"owner/repo-a", "owner/repo-b"}, 10, srv.URL)
+	checked, errs := fetchRepos([]string{"owner/repo-a", "owner/repo-b"}, 10, srv.URL, nil, 0)
 
 	if len(errs) != 0 {
 		t.Errorf("unexpected errors: %v", errs)
@@ -349,4 +351,65 @@ func TestFetchRepos(t *testing.T) {
 			t.Errorf("missing info for %s", repo)
 		}
 	}
+}
+
+func TestFetchReposUsesCache(t *testing.T) {
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		if strings.Contains(r.URL.Path, "/commits/") {
+			w.Write([]byte(`{"commit":{"committer":{"date":"2024-01-01T00:00:00Z"}}}`))
+			return
+		}
+		w.Write([]byte(`[{"name":"v1.0.0","commit":{"sha":"abc1234"}}]`))
+	}))
+	defer srv.Close()
+
+	t.Run("fresh cache is served without hitting the API", func(t *testing.T) {
+		cache := &cacheFile{Repos: map[string]cacheEntry{}}
+		cache.set("owner/repo", &repoInfo{
+			latest:  tagInfo{tag: "v1.0.0", sha: "abc1234", date: "2024-01-01"},
+			topTags: []tagInfo{{tag: "v1.0.0", sha: "abc1234", date: "2024-01-01"}},
+			tags:    map[string]string{"v1.0.0": "abc1234"},
+		})
+
+		hits.Store(0)
+		checked, errs := fetchRepos([]string{"owner/repo"}, 1, srv.URL, cache, defaultCacheAge)
+		if len(errs) != 0 {
+			t.Errorf("unexpected errors: %v", errs)
+		}
+		if hits.Load() != 0 {
+			t.Errorf("expected 0 API hits, got %d", hits.Load())
+		}
+		if checked["owner/repo"] == nil || checked["owner/repo"].latest.tag != "v1.0.0" {
+			t.Errorf("expected cached info to be served, got %+v", checked["owner/repo"])
+		}
+	})
+
+	t.Run("stale cache falls through to the API", func(t *testing.T) {
+		cache := &cacheFile{Repos: map[string]cacheEntry{}}
+		cache.set("owner/repo", &repoInfo{
+			latest:  tagInfo{tag: "v0.0.1", sha: "old", date: "2020-01-01"},
+			topTags: []tagInfo{{tag: "v0.0.1", sha: "old", date: "2020-01-01"}},
+			tags:    map[string]string{"v0.0.1": "old"},
+		})
+		entry := cache.Repos["owner/repo"]
+		entry.FetchedAt = time.Now().Add(-8 * 24 * time.Hour)
+		cache.Repos["owner/repo"] = entry
+
+		hits.Store(0)
+		checked, errs := fetchRepos([]string{"owner/repo"}, 1, srv.URL, cache, defaultCacheAge)
+		if len(errs) != 0 {
+			t.Errorf("unexpected errors: %v", errs)
+		}
+		if hits.Load() == 0 {
+			t.Error("expected stale cache to trigger an API call")
+		}
+		if checked["owner/repo"] == nil || checked["owner/repo"].latest.tag != "v1.0.0" {
+			t.Errorf("expected fresh info from API, got %+v", checked["owner/repo"])
+		}
+		if cache.Repos["owner/repo"].Latest.Tag != "v1.0.0" {
+			t.Errorf("expected cache to be refreshed, got %+v", cache.Repos["owner/repo"])
+		}
+	})
 }

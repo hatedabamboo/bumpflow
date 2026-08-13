@@ -6,10 +6,13 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type config struct {
+	cacheAge     time.Duration
 	dryRun       bool
+	noCache      bool
 	targetAction string
 	targetFile   string
 	tagCount     int
@@ -61,6 +64,12 @@ func loadConfigFile(path string) (config, bool) {
 			cfg.useHash = val == "true"
 		case "always_tag":
 			cfg.useTag = val == "true"
+		case "cache":
+			cfg.noCache = val == "false"
+		case "cache_age":
+			if d, err := parseCacheAge(val); err == nil && d > 0 {
+				cfg.cacheAge = d
+			}
 		case "count":
 			if n, err := strconv.Atoi(val); err == nil && n > 0 {
 				cfg.tagCount = n

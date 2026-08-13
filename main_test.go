@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestParseArgs(t *testing.T) {
@@ -18,107 +19,127 @@ func TestParseArgs(t *testing.T) {
 	}{
 		{
 			[]string{"bumpflow"},
-			config{tagCount: defaultTagCount},
+			config{tagCount: defaultTagCount, cacheAge: defaultCacheAge},
 			nil,
 		},
 		{
 			[]string{"bumpflow", "-t"},
-			config{useTag: true, tagCount: defaultTagCount},
+			config{useTag: true, tagCount: defaultTagCount, cacheAge: defaultCacheAge},
 			nil,
 		},
 		{
 			[]string{"bumpflow", "--tags"},
-			config{useTag: true, tagCount: defaultTagCount},
+			config{useTag: true, tagCount: defaultTagCount, cacheAge: defaultCacheAge},
 			nil,
 		},
 		{
 			[]string{"bumpflow", "-s"},
-			config{useHash: true, tagCount: defaultTagCount},
+			config{useHash: true, tagCount: defaultTagCount, cacheAge: defaultCacheAge},
 			nil,
 		},
 		{
 			[]string{"bumpflow", "--sha"},
-			config{useHash: true, tagCount: defaultTagCount},
+			config{useHash: true, tagCount: defaultTagCount, cacheAge: defaultCacheAge},
 			nil,
 		},
 		{
 			[]string{"bumpflow", "-A"},
-			config{updateAll: true, tagCount: defaultTagCount},
+			config{updateAll: true, tagCount: defaultTagCount, cacheAge: defaultCacheAge},
 			nil,
 		},
 		{
 			[]string{"bumpflow", "--update-all"},
-			config{updateAll: true, tagCount: defaultTagCount},
+			config{updateAll: true, tagCount: defaultTagCount, cacheAge: defaultCacheAge},
 			nil,
 		},
 		{
 			[]string{"bumpflow", "-r"},
-			config{useReplace: true, tagCount: defaultTagCount},
+			config{useReplace: true, tagCount: defaultTagCount, cacheAge: defaultCacheAge},
 			nil,
 		},
 		{
 			[]string{"bumpflow", "--replace"},
-			config{useReplace: true, tagCount: defaultTagCount},
+			config{useReplace: true, tagCount: defaultTagCount, cacheAge: defaultCacheAge},
 			nil,
 		},
 		{
 			[]string{"bumpflow", "-v"},
-			config{verbose: true, tagCount: defaultTagCount},
+			config{verbose: true, tagCount: defaultTagCount, cacheAge: defaultCacheAge},
 			nil,
 		},
 		{
 			[]string{"bumpflow", "-t", "-A"},
-			config{useTag: true, updateAll: true, tagCount: defaultTagCount},
+			config{useTag: true, updateAll: true, tagCount: defaultTagCount, cacheAge: defaultCacheAge},
 			nil,
 		},
 		{
 			[]string{"bumpflow", "-n", "5"},
-			config{tagCount: 5},
+			config{tagCount: 5, cacheAge: defaultCacheAge},
 			nil,
 		},
 		{
 			[]string{"bumpflow", "--count", "3"},
-			config{tagCount: 3},
+			config{tagCount: 3, cacheAge: defaultCacheAge},
+			nil,
+		},
+		{
+			[]string{"bumpflow", "-C"},
+			config{noCache: true, tagCount: defaultTagCount},
+			nil,
+		},
+		{
+			[]string{"bumpflow", "--no-cache"},
+			config{noCache: true, tagCount: defaultTagCount},
+			nil,
+		},
+		{
+			[]string{"bumpflow", "--cache-age", "3d"},
+			config{tagCount: defaultTagCount, cacheAge: 3 * 24 * time.Hour},
+			nil,
+		},
+		{
+			[]string{"bumpflow", "-C", "--cache-age", "12h"},
+			config{noCache: true, tagCount: defaultTagCount, cacheAge: 12 * time.Hour},
 			nil,
 		},
 		{
 			[]string{"bumpflow", "-d"},
-			config{dryRun: true, tagCount: defaultTagCount},
+			config{dryRun: true, tagCount: defaultTagCount, cacheAge: defaultCacheAge},
 			nil,
 		},
 		{
 			[]string{"bumpflow", "--dry-run"},
-			config{dryRun: true, tagCount: defaultTagCount},
+			config{dryRun: true, tagCount: defaultTagCount, cacheAge: defaultCacheAge},
 			nil,
 		},
 		{
 			[]string{"bumpflow", "-f", ".github/workflows/ci.yml"},
-			config{tagCount: defaultTagCount, targetFile: ".github/workflows/ci.yml"},
+			config{tagCount: defaultTagCount, cacheAge: defaultCacheAge, targetFile: ".github/workflows/ci.yml"},
 			nil,
 		},
 		{
 			[]string{"bumpflow", "--file", ".github/workflows/ci.yml"},
-			config{tagCount: defaultTagCount, targetFile: ".github/workflows/ci.yml"},
+			config{tagCount: defaultTagCount, cacheAge: defaultCacheAge, targetFile: ".github/workflows/ci.yml"},
 			nil,
 		},
 		{
 			[]string{"bumpflow", "-a", "actions/checkout"},
-			config{tagCount: defaultTagCount, targetAction: "actions/checkout"},
+			config{tagCount: defaultTagCount, cacheAge: defaultCacheAge, targetAction: "actions/checkout"},
 			nil,
 		},
 		{
 			[]string{"bumpflow", "--action", "actions/checkout"},
-			config{tagCount: defaultTagCount, targetAction: "actions/checkout"},
+			config{tagCount: defaultTagCount, cacheAge: defaultCacheAge, targetAction: "actions/checkout"},
 			nil,
 		},
 		{
 			[]string{"bumpflow", "-f", ".github/workflows/ci.yml", "-a", "actions/checkout"},
-			config{tagCount: defaultTagCount, targetFile: ".github/workflows/ci.yml", targetAction: "actions/checkout"},
+			config{tagCount: defaultTagCount, cacheAge: defaultCacheAge, targetFile: ".github/workflows/ci.yml", targetAction: "actions/checkout"},
 			nil,
 		},
 		{
 			[]string{"bumpflow", "-f", ".github/workflows/ci.yml", "-A"},
-			config{tagCount: defaultTagCount, updateAll: true, targetFile: ".github/workflows/ci.yml"},
+			config{tagCount: defaultTagCount, cacheAge: defaultCacheAge, updateAll: true, targetFile: ".github/workflows/ci.yml"},
 			nil,
 		},
 		{
@@ -140,6 +161,16 @@ func TestParseArgs(t *testing.T) {
 			[]string{"bumpflow", "-n", "abc"},
 			config{},
 			fmt.Errorf("Error: -n value must be a positive integer"),
+		},
+		{
+			[]string{"bumpflow", "--cache-age"},
+			config{},
+			fmt.Errorf("Error: --cache-age requires a value"),
+		},
+		{
+			[]string{"bumpflow", "--cache-age", "nonsense"},
+			config{},
+			fmt.Errorf("Error: --cache-age value must be a valid duration (e.g. 7d, 24h)"),
 		},
 		{
 			[]string{"bumpflow", "-t", "-s"},

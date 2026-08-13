@@ -166,7 +166,7 @@ func bestTagForSHA(info *repoInfo, sha string) string {
 	return best
 }
 
-func fetchRepos(ownerRepos []string, count int, baseURL string) (map[string]*repoInfo, map[string]error) {
+func fetchRepos(ownerRepos []string, count int, baseURL string, cache *cacheFile, cacheAge time.Duration) (map[string]*repoInfo, map[string]error) {
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 	checked := make(map[string]*repoInfo, len(ownerRepos))
@@ -176,13 +176,29 @@ func fetchRepos(ownerRepos []string, count int, baseURL string) (map[string]*rep
 		wg.Add(1)
 		go func(repo string) {
 			defer wg.Done()
+
+			mu.Lock()
+			if cache != nil {
+				if info, ok := cache.get(repo, count, cacheAge); ok {
+					slog.Debug("cache hit", "repo", repo)
+					checked[repo] = info
+					mu.Unlock()
+					return
+				}
+				slog.Debug("cache miss", "repo", repo)
+			}
+			mu.Unlock()
+
 			slog.Debug("fetching repo tags", "repo", repo)
 			info, err := getRepoTagInfo(repo, baseURL, count)
+
 			mu.Lock()
 			checked[repo] = info
 			if err != nil {
 				slog.Debug("failed to fetch repo tags", "repo", repo, "error", err)
 				errs[repo] = err
+			} else if cache != nil && info != nil {
+				cache.set(repo, info)
 			}
 			mu.Unlock()
 		}(ownerRepo)
