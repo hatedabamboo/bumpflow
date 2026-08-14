@@ -62,7 +62,7 @@ bumpflow [options]
 
 ## Caching
 
-bumpflow caches fetched tag/SHA data in `~/.cache/bumpflow/repos.json` — a plain, human-readable JSON file — to cut down on GitHub API calls across repeated runs, which matters most for anonymous requests (60/hour). Caching is on by default; pass `-C`/`--no-cache` (or set `cache: false` in `.bumpflow.yaml`) to disable it.
+bumpflow caches fetched tag/SHA data in `~/.cache/bumpflow/repos.json` — a plain JSON file — to cut down on GitHub API calls across repeated runs, which matters most for anonymous requests (60/hour). Caching is on by default; pass `-C`/`--no-cache` (or set `cache: false` in `.bumpflow.yaml`) to disable it.
 
 Each cached entry is keyed by repo and stamped with the time it was fetched. On the next run, an entry is reused only if it's within the configured max age *and* holds at least as many tags as requested (via `-n`/`--count`); otherwise bumpflow goes straight to the GitHub API and refreshes it. The max age defaults to `7d` and can be changed with `--cache-age` (or `cache_age` in the config file), accepting either a day count with a `d` suffix (`3d`) or a Go duration string (`12h`, `90m`).
 
