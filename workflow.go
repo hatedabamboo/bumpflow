@@ -18,8 +18,9 @@ import (
 const workflowsDir = ".github/workflows"
 
 var (
-	actionRe = regexp.MustCompile(`^\s+(?:-\s+)?uses:\s+([a-zA-Z0-9_./-]+/[a-zA-Z0-9_./%-]+)@(\S+)`)
+	actionRe = regexp.MustCompile(`^\s+(?:-\s+)?uses:\s+(["']?)([a-zA-Z0-9_./-]+/[a-zA-Z0-9_./%-]+)@([^\s"']+)(["']?)(?:\s|$)`)
 	hashRe   = regexp.MustCompile(`^[0-9a-f]{40}$`)
+	versionCommentRe = regexp.MustCompile(`^[ \t]*#[ \t]*v?\d+(?:\.\d+)*[ \t]*(#.*)?$`)
 )
 
 type rawEntry struct {
@@ -54,9 +55,10 @@ func shortSHA(sha string) string {
 	return "unknown"
 }
 
-// rewriteFile applies pattern to wfFile, replacing the capture group with replacement.
+// rewriteFile replaces every match of pattern in wfFile with the result of repl,
+// which receives the submatches of that match.
 // Padding must be applied to raw strings before colorizing to keep column widths correct.
-func rewriteFile(wfFile string, pattern *regexp.Regexp, replacement string, dryRun bool) {
+func rewriteFile(wfFile string, pattern *regexp.Regexp, repl func(sub []string) string, dryRun bool) {
 	slog.Debug("reading workflow file", "file", wfFile)
 	fi, err := os.Stat(wfFile)
 	if err != nil {
@@ -68,8 +70,10 @@ func rewriteFile(wfFile string, pattern *regexp.Regexp, replacement string, dryR
 		fmt.Fprintf(os.Stderr, "  %s %s: %v\n", cRed("Error reading"), wfFile, err)
 		return
 	}
-	updated := pattern.ReplaceAll(data, []byte("${1}"+replacement))
-	if string(updated) == string(data) {
+	updated := pattern.ReplaceAllStringFunc(string(data), func(m string) string {
+		return repl(pattern.FindStringSubmatch(m))
+	})
+	if updated == string(data) {
 		return
 	}
 	if dryRun {
@@ -77,32 +81,69 @@ func rewriteFile(wfFile string, pattern *regexp.Regexp, replacement string, dryR
 		return
 	}
 	slog.Debug("writing workflow file", "file", wfFile)
-	if err := os.WriteFile(wfFile, updated, fi.Mode()); err != nil {
+	if err := os.WriteFile(wfFile, []byte(updated), fi.Mode()); err != nil {
 		fmt.Fprintf(os.Stderr, "  %s %s: %v\n", cRed("Error writing"), wfFile, err)
 		return
 	}
 	fmt.Printf("  %s %s\n", cGreen("Updated"), wfFile)
 }
 
-func applyUpdate(a action, ref, comment string, dryRun bool) {
-	pattern := regexp.MustCompile(`(uses:\s+` + regexp.QuoteMeta(a.actionRef) + `@)[^\s#]+([ \t]*#[^\n]*)?`)
-	replacement := ref
+func usesPattern(actionRef string) *regexp.Regexp {
+	return regexp.MustCompile(`(uses:\s+)(["']?)` + regexp.QuoteMeta(actionRef) + `@([^\s"'#]+)(["']?)([ \t]*#[^\r\n]*)?`)
+}
+
+func keptComment(c string) (lead, rest string) {
+	if c == "" {
+		return "", ""
+	}
+	if m := versionCommentRe.FindStringSubmatch(c); m != nil {
+		return " ", m[1]
+	}
+	rest = strings.TrimLeft(c, " \t")
+	return c[:len(c)-len(rest)], rest
+}
+
+func rewriteUses(sub []string, actionRef, ref, comment string) string {
+	prefix, openQ, closeQ := sub[1], sub[2], sub[4]
+	if openQ != closeQ {
+		return sub[0]
+	}
+	out := prefix + openQ + actionRef + "@" + ref + closeQ
+	lead, kept := keptComment(sub[5])
 	if comment != "" {
-		replacement = ref + " # " + comment
+		out += " # " + comment
+		lead = " "
+	}
+	if kept != "" {
+		out += lead + kept
+	}
+	return out
+}
+
+func applyUpdate(a action, ref, comment string, dryRun bool) {
+	pattern := usesPattern(a.actionRef)
+	repl := func(sub []string) string {
+		return rewriteUses(sub, a.actionRef, ref, comment)
 	}
 	for _, wfFile := range a.files {
-		rewriteFile(wfFile, pattern, replacement, dryRun)
+		rewriteFile(wfFile, pattern, repl, dryRun)
 	}
 }
 
 func applyReplace(actionRef, from, to string, files []string, dryRun bool) {
-	pattern := regexp.MustCompile(`(uses:\s+` + regexp.QuoteMeta(actionRef) + `@)` + regexp.QuoteMeta(from) + `([ \t]*#[^\n]*)?`)
-	replacement := to
+	pattern := usesPattern(actionRef)
+	comment := ""
 	if hashRe.MatchString(to) {
-		replacement = to + " # " + from
+		comment = from
+	}
+	repl := func(sub []string) string {
+		if sub[3] != from {
+			return sub[0]
+		}
+		return rewriteUses(sub, actionRef, to, comment)
 	}
 	for _, wfFile := range files {
-		rewriteFile(wfFile, pattern, replacement, dryRun)
+		rewriteFile(wfFile, pattern, repl, dryRun)
 	}
 }
 
@@ -127,10 +168,10 @@ func collectEntries() ([]rawEntry, []string) {
 		}
 		for _, line := range strings.Split(string(data), "\n") {
 			m := actionRe.FindStringSubmatch(line)
-			if m == nil {
+			if m == nil || m[1] != m[4] {
 				continue
 			}
-			actionRef, currentTag := m[1], m[2]
+			actionRef, currentTag := m[2], m[3]
 			if strings.HasPrefix(actionRef, ".") {
 				continue
 			}
@@ -145,10 +186,35 @@ func collectEntries() ([]rawEntry, []string) {
 	return entries, ownerRepos
 }
 
+func formatFetchErrors(fetchErrs map[string]error) string {
+	groups := map[string][]string{}
+	for repo, err := range fetchErrs {
+		if inner := errors.Unwrap(err); inner != nil {
+			err = inner
+		}
+		groups[err.Error()] = append(groups[err.Error()], repo)
+	}
+	msgs := make([]string, 0, len(groups))
+	for msg := range groups {
+		msgs = append(msgs, msg)
+	}
+	sort.Strings(msgs)
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "\nFailed to fetch %d repo(s):\n", len(fetchErrs))
+	for _, msg := range msgs {
+		repos := groups[msg]
+		sort.Strings(repos)
+		fmt.Fprintf(&b, "  %s\n    %s\n", msg, strings.Join(repos, ", "))
+	}
+	return b.String()
+}
+
 func printFetchErrors(fetchErrs map[string]error) {
 	if len(fetchErrs) == 0 {
 		return
 	}
+	fmt.Print(cRed(formatFetchErrors(fetchErrs)))
 	if ghToken == "" {
 		fmt.Println(cRed("\nEncountered an error: perhaps you don't have an access to the repository, or most likely hit the GitHub API rate limit.\nAnonymous GitHub API requests are limited to 60/hour — set GH_TOKEN environment variable or use a VPN."))
 	} else {
@@ -224,9 +290,6 @@ func scan(cfg config) ([]action, bool, error) {
 	fmt.Printf("Fetching %d repo(s)...\n", len(ownerRepos))
 	cache := prepareCache(cfg)
 	checked, fetchErrs := fetchRepos(ownerRepos, cfg.tagCount, defaultAPIBaseURL, cache, cfg.cacheAge)
-	if cache != nil {
-		cache.save()
-	}
 
 	installedVersions := map[string][]string{}
 	seenInstalled := map[string]map[string]struct{}{}
@@ -276,10 +339,32 @@ func scan(cfg config) ([]action, bool, error) {
 
 	printFetchErrors(fetchErrs)
 
+	outdated := outdatedActions(entries, checked)
+	if !cfg.updateAll {
+		fillLatestDates(outdated, checked, defaultAPIBaseURL, cache)
+	}
+	if cache != nil {
+		cache.save()
+	}
+	return outdated, len(fetchErrs) > 0, nil
+}
+
+func isUpToDate(info *repoInfo, ref string) bool {
+	sha := ref
+	if !hashRe.MatchString(ref) {
+		sha = info.tags[ref]
+	}
+	return sha != "" && sha == info.latest.sha
+}
+
+func outdatedActions(entries []rawEntry, checked map[string]*repoInfo) []action {
 	actions := map[string]*action{}
 	for _, e := range entries {
 		info := checked[e.ownerRepo]
 		if info == nil {
+			continue
+		}
+		if isUpToDate(info, e.currentTag) {
 			continue
 		}
 		effectiveTag := e.currentTag
@@ -322,7 +407,7 @@ func scan(cfg config) ([]action, bool, error) {
 		sort.Strings(a.files)
 		result = append(result, a)
 	}
-	return result, len(fetchErrs) > 0, nil
+	return result
 }
 
 func pickRef(a action, cfg config, r *bufio.Reader) (string, string, bool) {
@@ -377,26 +462,7 @@ func pickRef(a action, cfg config, r *bufio.Reader) (string, string, bool) {
 	}
 }
 
-func replace(cfg config) error {
-	rawEntries, _ := collectEntries()
-	entries, ownerRepos, err := prepareEntries(cfg, rawEntries)
-	if err != nil {
-		return err
-	}
-
-	if len(ownerRepos) == 0 {
-		fmt.Println("No GitHub Actions found in", workflowsDir)
-		return nil
-	}
-
-	fmt.Printf("Fetching %d repo(s)...\n", len(ownerRepos))
-	cache := prepareCache(cfg)
-	checked, fetchErrs := fetchRepos(ownerRepos, 1, defaultAPIBaseURL, cache, cfg.cacheAge)
-	if cache != nil {
-		cache.save()
-	}
-	printFetchErrors(fetchErrs)
-
+func replaceItems(entries []rawEntry, checked map[string]*repoInfo) []*replaceItem {
 	type key struct{ ref, tag string }
 	itemMap := map[key]*replaceItem{}
 	var orderedKeys []key
@@ -430,11 +496,6 @@ func replace(cfg config) error {
 		}
 	}
 
-	if len(orderedKeys) == 0 {
-		fmt.Println("\nNo convertible actions found.")
-		return nil
-	}
-
 	sort.Slice(orderedKeys, func(i, j int) bool {
 		if orderedKeys[i].ref != orderedKeys[j].ref {
 			return orderedKeys[i].ref < orderedKeys[j].ref
@@ -442,9 +503,37 @@ func replace(cfg config) error {
 		return orderedKeys[i].tag < orderedKeys[j].tag
 	})
 
-	remaining := make([]*replaceItem, len(orderedKeys))
+	items := make([]*replaceItem, len(orderedKeys))
 	for i, k := range orderedKeys {
-		remaining[i] = itemMap[k]
+		items[i] = itemMap[k]
+	}
+	return items
+}
+
+func replace(cfg config) error {
+	rawEntries, _ := collectEntries()
+	entries, ownerRepos, err := prepareEntries(cfg, rawEntries)
+	if err != nil {
+		return err
+	}
+
+	if len(ownerRepos) == 0 {
+		fmt.Println("No GitHub Actions found in", workflowsDir)
+		return nil
+	}
+
+	fmt.Printf("Fetching %d repo(s)...\n", len(ownerRepos))
+	cache := prepareCache(cfg)
+	checked, fetchErrs := fetchRepos(ownerRepos, 1, defaultAPIBaseURL, cache, cfg.cacheAge)
+	if cache != nil {
+		cache.save()
+	}
+	printFetchErrors(fetchErrs)
+
+	remaining := replaceItems(entries, checked)
+	if len(remaining) == 0 {
+		fmt.Println("\nNo convertible actions found.")
+		return nil
 	}
 
 	reader := bufio.NewReader(os.Stdin)

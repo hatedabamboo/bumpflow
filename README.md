@@ -140,7 +140,7 @@ jobs:
           go-version: stable
 
       - name: Install bumpflow
-        run: go install github.com/hatedabamboo/bumpflow@latest
+        run: go install github.com/hatedabamboo/bumpflow@v1.2.0
 
       - name: Upgrade workflows
         run: |

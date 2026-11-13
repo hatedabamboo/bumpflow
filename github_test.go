@@ -107,6 +107,24 @@ func TestGithubGet(t *testing.T) {
 		}
 	})
 
+	t.Run("sends bumpflow user agent", func(t *testing.T) {
+		orig := version
+		version = "v9.9.9"
+		defer func() { version = orig }()
+
+		var gotUA string
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			gotUA = r.Header.Get("User-Agent")
+			w.Write([]byte(`{}`))
+		}))
+		defer srv.Close()
+
+		githubGet(srv.URL)
+		if gotUA != "bumpflow/v9.9.9" {
+			t.Errorf("User-Agent = %q, want %q", gotUA, "bumpflow/v9.9.9")
+		}
+	})
+
 	t.Run("sends auth header when token set", func(t *testing.T) {
 		orig := ghToken
 		ghToken = "mytoken"
@@ -276,6 +294,166 @@ func TestGetRepoTagInfo(t *testing.T) {
 	})
 }
 
+func TestNextLink(t *testing.T) {
+	tests := []struct {
+		name   string
+		header string
+		want   string
+	}{
+		{"empty", "", ""},
+		{"next and last", `<https://api.github.com/repositories/1/tags?per_page=100&page=2>; rel="next", <https://api.github.com/repositories/1/tags?per_page=100&page=6>; rel="last"`, "https://api.github.com/repositories/1/tags?per_page=100&page=2"},
+		{"next listed second", `<https://x/?page=1>; rel="prev", <https://x/?page=3>; rel="next"`, "https://x/?page=3"},
+		{"last page has no next", `<https://x/?page=1>; rel="first", <https://x/?page=2>; rel="prev"`, ""},
+		{"malformed url", `https://x/?page=2; rel="next"`, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := nextLink(tt.header); got != tt.want {
+				t.Errorf("nextLink(%q) = %q, want %q", tt.header, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetRepoTagInfoPagination(t *testing.T) {
+	newServer := func(pages map[string]string, nextOf func(page string, srvURL string) string, hits *atomic.Int32) *httptest.Server {
+		var srv *httptest.Server
+		srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if strings.Contains(r.URL.Path, "/commits/") {
+				w.Write([]byte(`{"commit":{"committer":{"date":"2024-01-15T00:00:00Z"}}}`))
+				return
+			}
+			hits.Add(1)
+			page := r.URL.Query().Get("page")
+			if page == "" {
+				page = "1"
+			}
+			if next := nextOf(page, srv.URL); next != "" {
+				w.Header().Set("Link", `<`+next+`>; rel="next"`)
+			}
+			w.Write([]byte(pages[page]))
+		}))
+		return srv
+	}
+
+	tests := []struct {
+		name       string
+		pages      map[string]string
+		nextOf     func(page, srvURL string) string
+		wantHits   int32
+		wantLatest string
+		wantTags   []string
+	}{
+		{
+			name: "follows three pages",
+			pages: map[string]string{
+				"1": `[{"name":"v1.0.0","commit":{"sha":"a1"}},{"name":"v1","commit":{"sha":"a1"}}]`,
+				"2": `[{"name":"v2.0.0","commit":{"sha":"b2"}}]`,
+				"3": `[{"name":"v3.0.0","commit":{"sha":"c3"}}]`,
+			},
+			nextOf: func(page, srvURL string) string {
+				switch page {
+				case "1":
+					return srvURL + "/repos/owner/repo/tags?per_page=100&page=2"
+				case "2":
+					return srvURL + "/repos/owner/repo/tags?per_page=100&page=3"
+				}
+				return ""
+			},
+			wantHits:   3,
+			wantLatest: "v3.0.0",
+			wantTags:   []string{"v1", "v1.0.0", "v2.0.0", "v3.0.0"},
+		},
+		{
+			name:  "stops at page cap",
+			pages: map[string]string{"1": `[{"name":"v1.0.0","commit":{"sha":"a1"}}]`},
+			nextOf: func(page, srvURL string) string {
+				return srvURL + "/repos/owner/repo/tags?per_page=100&page=1"
+			},
+			wantHits:   maxTagPages,
+			wantLatest: "v1.0.0",
+			wantTags:   []string{"v1.0.0"},
+		},
+		{
+			name: "ignores next link to another host",
+			pages: map[string]string{
+				"1": `[{"name":"v1.0.0","commit":{"sha":"a1"}}]`,
+			},
+			nextOf: func(page, srvURL string) string {
+				return "https://evil.example.com/repos/owner/repo/tags?page=2"
+			},
+			wantHits:   1,
+			wantLatest: "v1.0.0",
+			wantTags:   []string{"v1.0.0"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var hits atomic.Int32
+			srv := newServer(tt.pages, tt.nextOf, &hits)
+			defer srv.Close()
+
+			info, err := getRepoTagInfo("owner/repo", srv.URL, 10)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if hits.Load() != tt.wantHits {
+				t.Errorf("tag page requests = %d, want %d", hits.Load(), tt.wantHits)
+			}
+			if info.latest.tag != tt.wantLatest {
+				t.Errorf("latest = %q, want %q", info.latest.tag, tt.wantLatest)
+			}
+			for _, tag := range tt.wantTags {
+				if _, ok := info.tags[tag]; !ok {
+					t.Errorf("missing tag %q in %v", tag, info.tags)
+				}
+			}
+		})
+	}
+
+	t.Run("error on later page propagates", func(t *testing.T) {
+		var srv *httptest.Server
+		srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Query().Get("page") == "2" {
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Link", `<`+srv.URL+`/repos/owner/repo/tags?page=2>; rel="next"`)
+			w.Write([]byte(`[{"name":"v1.0.0","commit":{"sha":"a1"}}]`))
+		}))
+		defer srv.Close()
+
+		if _, err := getRepoTagInfo("owner/repo", srv.URL, 10); err == nil {
+			t.Fatal("expected error")
+		}
+	})
+
+	t.Run("sha resolves to tag found only on a later page", func(t *testing.T) {
+		var srv *httptest.Server
+		srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if strings.Contains(r.URL.Path, "/commits/") {
+				w.Write([]byte(`{}`))
+				return
+			}
+			if r.URL.Query().Get("page") == "2" {
+				w.Write([]byte(`[{"name":"v0.9.0","commit":{"sha":"old"}}]`))
+				return
+			}
+			w.Header().Set("Link", `<`+srv.URL+`/repos/owner/repo/tags?page=2>; rel="next"`)
+			w.Write([]byte(`[{"name":"v1.0.0","commit":{"sha":"new"}}]`))
+		}))
+		defer srv.Close()
+
+		info, err := getRepoTagInfo("owner/repo", srv.URL, 10)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got := bestTagForSHA(info, "old"); got != "v0.9.0" {
+			t.Errorf("bestTagForSHA = %q, want v0.9.0", got)
+		}
+	})
+}
+
 func TestBestTagForSHA(t *testing.T) {
 	info := &repoInfo{
 		tags: map[string]string{
@@ -412,4 +590,93 @@ func TestFetchReposUsesCache(t *testing.T) {
 			t.Errorf("expected cache to be refreshed, got %+v", cache.Repos["owner/repo"])
 		}
 	})
+}
+
+func TestGetRepoTagInfoSkipsCommitDate(t *testing.T) {
+	var commitHits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/commits/") {
+			commitHits.Add(1)
+			w.Write([]byte(`{"commit":{"committer":{"date":"2024-01-15T00:00:00Z"}}}`))
+			return
+		}
+		w.Write([]byte(`[{"name":"v1.0.0","commit":{"sha":"aaa"}}]`))
+	}))
+	defer srv.Close()
+
+	info, err := getRepoTagInfo("owner/repo", srv.URL, 10)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if commitHits.Load() != 0 {
+		t.Errorf("commit date requests = %d, want 0", commitHits.Load())
+	}
+	if info.latest.date != "" {
+		t.Errorf("latest date = %q, want empty", info.latest.date)
+	}
+}
+
+func TestFillLatestDates(t *testing.T) {
+	tests := []struct {
+		name          string
+		status        int
+		cachedDate    string
+		wantDate      string
+		wantHits      int32
+		wantCacheDate string
+	}{
+		{"fetches missing date once per repo", http.StatusOK, "", "2024-01-15", 1, "2024-01-15"},
+		{"keeps known date without fetching", http.StatusOK, "2023-05-05", "2023-05-05", 0, "2023-05-05"},
+		{"unknown on error is not cached", http.StatusNotFound, "", "unknown", 1, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var hits atomic.Int32
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				hits.Add(1)
+				w.WriteHeader(tt.status)
+				w.Write([]byte(`{"commit":{"committer":{"date":"2024-01-15T00:00:00Z"}}}`))
+			}))
+			defer srv.Close()
+
+			info := &repoInfo{
+				latest:  tagInfo{tag: "v2.0.0", sha: "aaa", date: tt.cachedDate},
+				topTags: []tagInfo{{tag: "v2.0.0", sha: "aaa", date: tt.cachedDate}},
+				tags:    map[string]string{"v2.0.0": "aaa"},
+			}
+			cache := &cacheFile{Repos: map[string]cacheEntry{}}
+			cache.set("owner/repo", info)
+			fetchedAt := time.Now().Add(-time.Hour)
+			entry := cache.Repos["owner/repo"]
+			entry.FetchedAt = fetchedAt
+			cache.Repos["owner/repo"] = entry
+
+			checked := map[string]*repoInfo{"owner/repo": info, "other/repo": nil}
+			actions := []action{
+				{actionRef: "owner/repo", ownerRepo: "owner/repo"},
+				{actionRef: "owner/repo/sub", ownerRepo: "owner/repo"},
+				{actionRef: "other/repo", ownerRepo: "other/repo"},
+			}
+			fillLatestDates(actions, checked, srv.URL, cache)
+
+			if hits.Load() != tt.wantHits {
+				t.Errorf("API hits = %d, want %d", hits.Load(), tt.wantHits)
+			}
+			for _, a := range actions[:2] {
+				if a.latestDate != tt.wantDate {
+					t.Errorf("%s latestDate = %q, want %q", a.actionRef, a.latestDate, tt.wantDate)
+				}
+			}
+			if info.topTags[0].date != tt.wantDate {
+				t.Errorf("topTags[0].date = %q, want %q", info.topTags[0].date, tt.wantDate)
+			}
+			got := cache.Repos["owner/repo"]
+			if got.Latest.Date != tt.wantCacheDate || got.TopTags[0].Date != tt.wantCacheDate {
+				t.Errorf("cached dates = (%q, %q), want %q", got.Latest.Date, got.TopTags[0].Date, tt.wantCacheDate)
+			}
+			if !got.FetchedAt.Equal(fetchedAt) {
+				t.Errorf("FetchedAt changed: got %v, want %v", got.FetchedAt, fetchedAt)
+			}
+		})
+	}
 }

@@ -132,6 +132,18 @@ func (cf *cacheFile) set(ownerRepo string, info *repoInfo) {
 	}
 }
 
+func (cf *cacheFile) setDate(ownerRepo, date string) {
+	entry, ok := cf.Repos[ownerRepo]
+	if !ok {
+		return
+	}
+	entry.Latest.Date = date
+	if len(entry.TopTags) > 0 && entry.TopTags[0].SHA == entry.Latest.SHA {
+		entry.TopTags[0].Date = date
+	}
+	cf.Repos[ownerRepo] = entry
+}
+
 func parseCacheAge(s string) (time.Duration, error) {
 	s = strings.TrimSpace(s)
 	if s == "" {

@@ -158,3 +158,44 @@ func TestPrepareCache(t *testing.T) {
 		}
 	})
 }
+
+func TestCacheSetDate(t *testing.T) {
+	tests := []struct {
+		name        string
+		repo        string
+		topSHA      string
+		wantLatest  string
+		wantTopDate string
+		wantExists  bool
+	}{
+		{"updates latest and matching top tag", "owner/repo", "aaa", "2024-01-15", "2024-01-15", true},
+		{"skips top tag with other sha", "owner/repo", "bbb", "2024-01-15", "", true},
+		{"ignores repo not in cache", "missing/repo", "aaa", "", "", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cf := &cacheFile{Repos: map[string]cacheEntry{
+				"owner/repo": {
+					FetchedAt: time.Unix(1000, 0),
+					Latest:    cachedTag{Tag: "v1.0.0", SHA: "aaa"},
+					TopTags:   []cachedTag{{Tag: "v1.0.0", SHA: tt.topSHA}},
+				},
+			}}
+			cf.setDate(tt.repo, "2024-01-15")
+
+			entry, ok := cf.Repos[tt.repo]
+			if ok != tt.wantExists {
+				t.Fatalf("entry exists = %v, want %v", ok, tt.wantExists)
+			}
+			if !ok {
+				return
+			}
+			if entry.Latest.Date != tt.wantLatest || entry.TopTags[0].Date != tt.wantTopDate {
+				t.Errorf("dates = (%q, %q), want (%q, %q)", entry.Latest.Date, entry.TopTags[0].Date, tt.wantLatest, tt.wantTopDate)
+			}
+			if !entry.FetchedAt.Equal(time.Unix(1000, 0)) {
+				t.Errorf("FetchedAt changed to %v", entry.FetchedAt)
+			}
+		})
+	}
+}
