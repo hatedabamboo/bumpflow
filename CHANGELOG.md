@@ -1,5 +1,10 @@
 # CHANGELOG
 
+## 2026-11-13
+
+- (fix) Releave v.1.2.1: paginate tags, support quoted `uses:`, preserve comments on rewrite, fewer API calls [f2697dd](https://github.com/hatedabamboo/bumpflow/commit/f2697dd68bd7ab133fb4594455183cb0433766a1)
+- (fix) `-f` now correctly consumes any yaml file with actions in it [67ea080](https://github.com/hatedabamboo/bumpflow/commit/67ea080a6819d5c7bbd546046c0751cb4fe98de3)
+
 ## 2026-08-13
 
 - (feat) Release v1.2.0: cache fetched actions to reduce GH api calls [67e00ad](https://github.com/hatedabamboo/bumpflow/commit/67e00adcdf7d33829483cab341a9e458a23aaf12)
