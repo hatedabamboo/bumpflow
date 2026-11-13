@@ -147,11 +147,15 @@ func applyReplace(actionRef, from, to string, files []string, dryRun bool) {
 	}
 }
 
-func collectEntries() ([]rawEntry, []string) {
+func collectEntries(targetFile string) ([]rawEntry, []string) {
 	var wfFiles []string
-	for _, pat := range []string{"*.yml", "*.yaml"} {
-		matches, _ := filepath.Glob(filepath.Join(workflowsDir, pat))
-		wfFiles = append(wfFiles, matches...)
+	if targetFile == "" {
+		for _, pat := range []string{"*.yml", "*.yaml"} {
+			matches, _ := filepath.Glob(filepath.Join(workflowsDir, pat))
+			wfFiles = append(wfFiles, matches...)
+		}
+	} else {
+		wfFiles = append(wfFiles, targetFile)
 	}
 	sort.Strings(wfFiles)
 
@@ -276,7 +280,7 @@ func prepareEntries(cfg config, entries []rawEntry) ([]rawEntry, []string, error
 }
 
 func scan(cfg config) ([]action, bool, error) {
-	rawEntries, _ := collectEntries()
+	rawEntries, _ := collectEntries(cfg.targetFile)
 	entries, ownerRepos, err := prepareEntries(cfg, rawEntries)
 	if err != nil {
 		return nil, false, err
@@ -511,7 +515,7 @@ func replaceItems(entries []rawEntry, checked map[string]*repoInfo) []*replaceIt
 }
 
 func replace(cfg config) error {
-	rawEntries, _ := collectEntries()
+	rawEntries, _ := collectEntries(cfg.targetFile)
 	entries, ownerRepos, err := prepareEntries(cfg, rawEntries)
 	if err != nil {
 		return err

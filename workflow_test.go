@@ -575,7 +575,7 @@ jobs:
 	os.Chdir(dir)
 	defer os.Chdir(origDir)
 
-	entries, ownerRepos := collectEntries()
+	entries, ownerRepos := collectEntries("")
 
 	if len(entries) != 5 {
 		t.Errorf("got %d entries, want 5", len(entries))
@@ -584,6 +584,45 @@ jobs:
 		t.Errorf("got %d ownerRepos, want 3", len(ownerRepos))
 	}
 	for _, e := range entries {
+		if e.ownerRepo == "." || e.ownerRepo == "./.local" {
+			t.Errorf("local action should be skipped, got ownerRepo %q", e.ownerRepo)
+		}
+	}
+}
+
+func TestCollectEntriesTargetFile(t *testing.T) {
+	dir := t.TempDir()
+	wfDir := filepath.Join(dir, ".github", "actions")
+	os.MkdirAll(wfDir, 0755)
+
+	content := `name: CI
+jobs:
+  build:
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v4
+      - uses: ./.local/action
+      - uses: "actions/cache@v3"
+      - uses: 'actions/cache@v4'
+      - uses: "actions/cache@v5'
+`
+
+	ciFilePath := filepath.Join(wfDir, "ci.yaml")
+	os.WriteFile(ciFilePath, []byte(content), 0644)
+
+	entries, ownerRepos := collectEntries(ciFilePath)
+
+	if len(entries) != 5 {
+		t.Errorf("got %d entries, want 5", len(entries))
+	}
+	if len(ownerRepos) != 3 {
+		t.Errorf("got %d ownerRepos, want 3", len(ownerRepos))
+	}
+	for _, e := range entries {
+		if e.wfFile != ciFilePath {
+			t.Errorf("workflow file should be %q, got %q", ciFilePath, e.wfFile)
+		}
 		if e.ownerRepo == "." || e.ownerRepo == "./.local" {
 			t.Errorf("local action should be skipped, got ownerRepo %q", e.ownerRepo)
 		}

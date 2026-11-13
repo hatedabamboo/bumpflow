@@ -49,7 +49,7 @@ Options:
       --cache-age   Max age before a cached entry is refreshed (default 7d)
   -d, --dry-run     Preview changes without modifying any files
   -h, --help        Show this help
-  -f, --file        Update only actions in the specified workflow file
+  -f, --file        Update only actions in the specified file
   -n, --count       Number of latest tags to fetch (default 10)
   -r, --replace     Convert pinned tags↔SHAs without upgrading versions
   -s, --sha         Always use commit hashes when updating (skip prompt)

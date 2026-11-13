@@ -49,7 +49,7 @@ bumpflow [options]
 | `-C` | `--no-cache` | Disable caching of fetched repo versions in `~/.cache/bumpflow` (caching is on by default) |
 |      | `--cache-age` | Max age before a cached entry is refreshed (default `7d`); once older, falls straight through to the API |
 | `-d` | `--dry-run` | Preview what would be updated without modifying any files |
-| `-f` | `--file` | Update only actions in the specified workflow file |
+| `-f` | `--file` | Update only actions in the specified file |
 | `-n` | `--count` | Number of latest tags to fetch (default 10) |
 | `-r` | `--replace` | Convert pinned tags↔SHAs without upgrading versions |
 | `-s` | `--sha` | Always use commit hashes when updating (skips the prompt) |
