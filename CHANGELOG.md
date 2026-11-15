@@ -1,8 +1,12 @@
 # CHANGELOG
 
+## 2026-11-15
+
+- (fix) Release v1.2.2: instead of silently skipping untagged hashed now compare them with tags [c43d8c0](https://github.com/hatedabamboo/bumpflow/commit/c43d8c03545619a907ad27cff5540c8e7a2d4a75)
+
 ## 2026-11-13
 
-- (fix) Releave v.1.2.1: paginate tags, support quoted `uses:`, preserve comments on rewrite, fewer API calls [f2697dd](https://github.com/hatedabamboo/bumpflow/commit/f2697dd68bd7ab133fb4594455183cb0433766a1)
+- (fix) Release v1.2.1: paginate tags, support quoted `uses:`, preserve comments on rewrite, fewer API calls [f2697dd](https://github.com/hatedabamboo/bumpflow/commit/f2697dd68bd7ab133fb4594455183cb0433766a1)
 - (fix) `-f` now correctly consumes any yaml file with actions in it [67ea080](https://github.com/hatedabamboo/bumpflow/commit/67ea080a6819d5c7bbd546046c0751cb4fe98de3)
 
 ## 2026-08-13
