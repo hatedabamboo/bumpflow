@@ -127,6 +127,25 @@ func getCommitDate(ownerRepo, sha, baseURL string) string {
 	return "unknown"
 }
 
+func isSHABehindTag(ownerRepo, sha, tag, baseURL string) (bool, error) {
+	data, err := githubGet(fmt.Sprintf("%s/repos/%s/compare/%s...%s", baseURL, ownerRepo, sha, tag))
+	if err != nil {
+		slog.Debug("failed to get commits comparison", "repo", ownerRepo, "sha", sha, "tag", tag, "error", err)
+		return false, err
+	}
+	var result struct {
+		Status string `json:"status"`
+	}
+	if err := json.Unmarshal(data, &result); err != nil {
+		slog.Debug("failed to parse comparison response", "repo", ownerRepo, "sha", sha, "tag", tag, "error", err)
+		return false, err
+	}
+	if result.Status == "ahead" {
+		return true, nil
+	}
+	return false, nil
+}
+
 type ghTag struct {
 	Name   string `json:"name"`
 	Commit struct {
