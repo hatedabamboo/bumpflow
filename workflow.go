@@ -18,8 +18,8 @@ import (
 const workflowsDir = ".github/workflows"
 
 var (
-	actionRe = regexp.MustCompile(`^\s+(?:-\s+)?uses:\s+(["']?)([a-zA-Z0-9_./-]+/[a-zA-Z0-9_./%-]+)@([^\s"']+)(["']?)(?:\s|$)`)
-	hashRe   = regexp.MustCompile(`^[0-9a-f]{40}$`)
+	actionRe         = regexp.MustCompile(`^\s+(?:-\s+)?uses:\s+(["']?)([a-zA-Z0-9_./-]+/[a-zA-Z0-9_./%-]+)@([^\s"']+)(["']?)(?:\s|$)`)
+	hashRe           = regexp.MustCompile(`^[0-9a-f]{40}$`)
 	versionCommentRe = regexp.MustCompile(`^[ \t]*#[ \t]*v?\d+(?:\.\d+)*[ \t]*(#.*)?$`)
 )
 
@@ -343,14 +343,22 @@ func scan(cfg config) ([]action, bool, error) {
 
 	printFetchErrors(fetchErrs)
 
-	outdated := outdatedActions(entries, checked)
+	var compareFailed bool
+	outdated := outdatedActions(entries, checked, func(ownerRepo, sha string) bool {
+		behind, err := isSHABehindTag(ownerRepo, sha, checked[ownerRepo].latest.tag, defaultAPIBaseURL)
+		if err != nil {
+			slog.Warn("unable to determine sha relative to latest tag", "repo", ownerRepo, "sha", sha, "error", err)
+			compareFailed = true
+		}
+		return behind
+	})
 	if !cfg.updateAll {
 		fillLatestDates(outdated, checked, defaultAPIBaseURL, cache)
 	}
 	if cache != nil {
 		cache.save()
 	}
-	return outdated, len(fetchErrs) > 0, nil
+	return outdated, len(fetchErrs) > 0 || compareFailed, nil
 }
 
 func isUpToDate(info *repoInfo, ref string) bool {
@@ -361,7 +369,7 @@ func isUpToDate(info *repoInfo, ref string) bool {
 	return sha != "" && sha == info.latest.sha
 }
 
-func outdatedActions(entries []rawEntry, checked map[string]*repoInfo) []action {
+func outdatedActions(entries []rawEntry, checked map[string]*repoInfo, isBehind func(ownerRepo, sha string) bool) []action {
 	actions := map[string]*action{}
 	for _, e := range entries {
 		info := checked[e.ownerRepo]
@@ -374,11 +382,11 @@ func outdatedActions(entries []rawEntry, checked map[string]*repoInfo) []action 
 		effectiveTag := e.currentTag
 		if hashRe.MatchString(e.currentTag) {
 			effectiveTag = bestTagForSHA(info, e.currentTag)
-			if effectiveTag == "" {
+			if effectiveTag == "" && !isBehind(e.ownerRepo, e.currentTag) {
 				continue
 			}
 		}
-		if !versionGreater(info.latest.tag, effectiveTag) {
+		if effectiveTag != "" && !versionGreater(info.latest.tag, effectiveTag) {
 			continue
 		}
 		if _, exists := actions[e.actionRef]; !exists {

@@ -633,6 +633,7 @@ func TestOutdatedActions(t *testing.T) {
 	latestSHA := strings.Repeat("a", 40)
 	oldSHA := strings.Repeat("b", 40)
 	unknownSHA := strings.Repeat("c", 40)
+	behindSHA := strings.Repeat("d", 40)
 	checked := map[string]*repoInfo{
 		"actions/setup-go": {
 			latest: tagInfo{tag: "v6.0.2", sha: latestSHA},
@@ -645,6 +646,9 @@ func TestOutdatedActions(t *testing.T) {
 				"v5.5.0": oldSHA,
 			},
 		},
+	}
+	isBehind := func(ownerRepo, sha string) bool {
+		return sha == behindSHA
 	}
 
 	tests := []struct {
@@ -659,13 +663,14 @@ func TestOutdatedActions(t *testing.T) {
 		{"older major", "v5", true},
 		{"older patch", "v6.0.1", true},
 		{"sha of older tag", oldSHA, true},
-		{"sha without tag", unknownSHA, false},
+		{"untagged sha not behind latest", unknownSHA, false},
+		{"untagged sha behind latest", behindSHA, true},
 		{"tag not in list but older", "v4", true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			entries := []rawEntry{{actionRef: "actions/setup-go", ownerRepo: "actions/setup-go", currentTag: tt.tag, wfFile: "ci.yml"}}
-			got := outdatedActions(entries, checked)
+			got := outdatedActions(entries, checked, isBehind)
 			if (len(got) == 1) != tt.want {
 				t.Errorf("outdated = %v, want %v (got %+v)", len(got) == 1, tt.want, got)
 			}
@@ -680,7 +685,7 @@ func TestOutdatedActions(t *testing.T) {
 			{actionRef: "actions/setup-go", ownerRepo: "actions/setup-go", currentTag: "v5", wfFile: "a.yml"},
 			{actionRef: "other/repo", ownerRepo: "other/repo", currentTag: "v1", wfFile: "a.yml"},
 		}
-		got := outdatedActions(entries, checked)
+		got := outdatedActions(entries, checked, isBehind)
 		if len(got) != 1 {
 			t.Fatalf("got %d actions, want 1", len(got))
 		}

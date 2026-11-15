@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -178,6 +179,79 @@ func TestGetCommitDate(t *testing.T) {
 		got := getCommitDate("owner/repo", "abc123", srv.URL)
 		if got != "unknown" {
 			t.Errorf("got %q, want %q", got, "unknown")
+		}
+	})
+}
+
+func TestIsSHABehindTag(t *testing.T) {
+	tests := []struct {
+		status string
+		want   bool
+	}{
+		{"ahead", true},
+		{"behind", false},
+		{"identical", false},
+		{"diverged", false},
+	}
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("api returns commit status %q", tt.status), func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				fmt.Fprintf(w, `{"status": %q}`, tt.status)
+			}))
+			defer srv.Close()
+
+			got, err := isSHABehindTag("owner/repo", "abc123", "v1.0.0", srv.URL)
+			if err != nil {
+				t.Errorf("unexpected error %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("got %t, want %t, error %v", got, tt.want, err)
+			}
+		})
+	}
+
+	t.Run("request path is correct", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/repos/owner/repo/compare/abc123...v1.0.0" {
+				t.Errorf("path = %q, want %q", r.URL.Path, "/repos/owner/repo/compare/abc123...v1.0.0")
+			}
+			w.Write([]byte(`{"status": "ahead"}`))
+		}))
+		defer srv.Close()
+
+		_, err := isSHABehindTag("owner/repo", "abc123", "v1.0.0", srv.URL)
+		if err != nil {
+			t.Errorf("unexpected error %v", err)
+		}
+	})
+
+	t.Run("api error returns false", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusNotFound)
+		}))
+		defer srv.Close()
+
+		got, err := isSHABehindTag("owner/repo", "abc123", "v1.0.0", srv.URL)
+		if err == nil {
+			t.Error("expected error, got nil")
+		}
+		if got {
+			t.Errorf("got %t, want false", got)
+		}
+	})
+
+	t.Run("malformed json returns false", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Write([]byte(`not json`))
+		}))
+		defer srv.Close()
+
+		got, err := isSHABehindTag("owner/repo", "abc123", "v1.0.0", srv.URL)
+		if err == nil {
+			t.Error("expected error, got nil")
+		}
+		if got {
+			t.Errorf("got %t, want false", got)
 		}
 	})
 }
